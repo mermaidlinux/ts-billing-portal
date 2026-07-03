@@ -106,16 +106,57 @@ export default function App() {
     <main className="page">
       <section className="card">
         <div className="header">
-          <div>
-            <p className="eyebrow">TERNAKSUKSES BILLING</p>
-            <h1>Invoice Pembayaran</h1>
+        
+          <div className="brandLeft">
+        
+            <img
+              src="/logo-ternaksukses.png"
+              className="brandLogo"
+              alt="TERNAKSUKSES"
+            />
+        
+            <div>
+        
+              <p className="eyebrow">
+                TERNAKSUKSES
+              </p>
+        
+              <h1 className="invoiceTitle">
+                Invoice Pembayaran
+              </h1>
+        
+            </div>
+        
           </div>
-          <span className={`badge ${invoice.status}`}>{invoice.status}</span>
+        
+          <span className={`badge ${invoice.status}`}>
+          
+            {invoice.status === "paid" && "🟢 Sudah Dibayar"}
+          
+            {invoice.status === "draft" && "🟠 Menunggu Pembayaran"}
+          
+            {invoice.status === "submitted" && "🟡 Menunggu Verifikasi"}
+          
+            {invoice.status === "overdue" && "🔴 Jatuh Tempo"}
+          
+          </span>
+        
         </div>
 
         <div className="clientBox">
-          <p>Halo, <strong>{invoice.ts_clients?.client_name || 'Client'}</strong> 👋</p>
-          <p>Berikut detail tagihan Anda.</p>
+        
+          <div className="helloText">
+            Halo,
+          </div>
+        
+          <div className="clientName">
+            {invoice.ts_clients?.client_name || 'Client'} 👋
+          </div>
+        
+          <p>
+            Berikut detail tagihan Anda.
+          </p>
+        
         </div>
 
         <div className="metaGrid">
@@ -154,16 +195,80 @@ export default function App() {
         </div>
 
         <div className="paymentBox">
+        
           <h2>Pembayaran</h2>
+        
           <p>Silakan transfer ke:</p>
-          <p><strong>Bank BLU by BCA Digital</strong></p>
-          <p>No. Rek: <strong>001138111111</strong></p>
-          <p>a.n. <strong>Marlene</strong></p>
+        
+          <p>
+            <strong>Bank BLU by BCA Digital</strong>
+          </p>
+        
+          <div className="rekeningRow">
+        
+            <span>No. Rek :</span>
+        
+            <strong>001138111111</strong>
+        
+            <button
+              className="copyButton"
+              onClick={() => {
+        
+                navigator.clipboard.writeText("001138111111")
+        
+                alert("Nomor rekening berhasil disalin.")
+        
+              }}
+            >
+              📋
+            </button>
+        
+          </div>
+        
+          <p>
+            a.n. <strong>Marlene</strong>
+          </p>
+        
+          <button
+            className="copyDetailButton"
+            onClick={() => {
+        
+              navigator.clipboard.writeText(
+        
+        `Bank BLU by BCA Digital
+        No. Rek : 001138111111
+        a.n. Marlene`
+        
+              )
+        
+              alert("Detail pembayaran berhasil disalin.")
+        
+            }}
+          >
+        
+            📋 Copy Semua Detail
+        
+          </button>
+        
         </div>
 
         <div className="notice">
+        
           Upload bukti transfer akan kita aktifkan pada step berikutnya.
+        
         </div>
+        
+        <footer className="footer">
+        
+          <strong>TERNAKSUKSES</strong>
+        
+          <p>
+        
+            Terima kasih telah mempercayai sistem kami.
+        
+          </p>
+        
+        </footer>
       </section>
     </main>
   )
