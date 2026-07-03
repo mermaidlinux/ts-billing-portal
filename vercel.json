@@ -1,7 +1,7 @@
 {
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/pay/:path*",
       "destination": "/index.html"
     }
   ]
