@@ -137,3 +137,68 @@ tfoot td { font-weight: 800; color: #fff; background: rgba(246,199,90,.08); }
   letter-spacing: 0;
   font-weight: 400;
 }
+
+.brandLeft {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.brandLogo {
+  width: 86px;
+  height: 86px;
+  object-fit: contain;
+  border-radius: 50%;
+}
+
+.invoiceTitle {
+  font-size: 26px;
+}
+
+.helloText {
+  font-size: 20px;
+  color: #c9d8ea;
+}
+
+.clientName {
+  font-size: 34px;
+  font-weight: 900;
+  color: #f6c75a;
+}
+
+.rekeningRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.copyButton,
+.copyDetailButton {
+  border: 1px solid #f6c75a;
+  background: rgba(246, 199, 90, 0.08);
+  color: #f6c75a;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.copyDetailButton {
+  margin-top: 12px;
+}
+
+.footer {
+  text-align: center;
+  margin-top: 34px;
+  color: #f6c75a;
+  letter-spacing: 8px;
+  font-weight: 800;
+}
+
+.footer p {
+  margin-top: 8px;
+  color: #9ca3af;
+  letter-spacing: 0;
+  font-weight: 400;
+}
