@@ -25,3 +25,115 @@ tfoot td { font-weight: 800; color: #fff; background: rgba(246,199,90,.08); }
 .right { text-align: right; }
 .notice { color: #f6c75a; }
 @media (max-width: 720px) { .metaGrid { grid-template-columns: 1fr; } .header { flex-direction: column; } .card { padding: 20px; } h1 { font-size: 26px; } }
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin-bottom: 28px;
+}
+
+.brand-logo {
+  width: 112px;
+  height: 112px;
+  object-fit: contain;
+  border-radius: 50%;
+}
+
+.brand-title {
+  font-size: 42px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #fff;
+}
+
+.brand-title span {
+  color: #f6b91a;
+}
+
+.brand-subtitle {
+  font-size: 24px;
+  letter-spacing: 11px;
+  color: #f6b91a;
+  font-weight: 700;
+}
+
+.brand-caption {
+  margin-top: 8px;
+  font-size: 15px;
+  color: #d6d6d6;
+}
+
+.invoice-heading-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.invoice-title {
+  font-size: 30px;
+}
+
+.payment-status {
+  border: 1px solid rgba(246, 185, 26, 0.45);
+  color: #f6b91a;
+  background: rgba(246, 185, 26, 0.08);
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.client-greeting {
+  font-size: 30px;
+  color: #fff;
+}
+
+.client-greeting span {
+  font-size: 42px;
+  font-weight: 900;
+  color: #f6b91a;
+}
+
+.bank-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.copy-btn,
+.copy-detail-btn {
+  border: 1px solid #f6b91a;
+  background: rgba(246, 185, 26, 0.08);
+  color: #f6b91a;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.copy-detail-btn {
+  margin-top: 12px;
+}
+
+.copy-btn:hover,
+.copy-detail-btn:hover {
+  background: rgba(246, 185, 26, 0.18);
+}
+
+.footer-brand {
+  text-align: center;
+  margin-top: 34px;
+  color: #f6b91a;
+  letter-spacing: 8px;
+  font-weight: 700;
+}
+
+.footer-brand p {
+  margin-top: 8px;
+  color: #9ca3af;
+  letter-spacing: 0;
+  font-weight: 400;
+}
