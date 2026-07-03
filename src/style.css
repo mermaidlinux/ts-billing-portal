@@ -202,3 +202,144 @@ tfoot td { font-weight: 800; color: #fff; background: rgba(246,199,90,.08); }
   letter-spacing: 0;
   font-weight: 400;
 }
+
+.uploadBox {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.uploadBox h2 {
+  margin-top: 0;
+}
+
+.uploadForm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.fileInputLabel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 12px 18px;
+  border: 1px dashed #f6c75a;
+  border-radius: 10px;
+  color: #f6c75a;
+  background: rgba(246, 199, 90, 0.06);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.fileInputLabel:hover {
+  background: rgba(246, 199, 90, 0.12);
+}
+
+.fileInput {
+  display: none;
+}
+
+.selectedFile {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #eaf2ff;
+  word-break: break-word;
+}
+
+.selectedFile span {
+  flex-shrink: 0;
+  color: #9db7d8;
+}
+
+.paymentNoteLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #eaf2ff;
+  font-weight: 700;
+}
+
+.paymentNoteLabel span {
+  color: #8ea8c6;
+  font-weight: 400;
+}
+
+.paymentNoteInput {
+  width: 100%;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  color: #eaf2ff;
+  background: rgba(2, 7, 13, 0.45);
+  font: inherit;
+}
+
+.paymentNoteInput:focus {
+  outline: none;
+  border-color: #f6c75a;
+}
+
+.submitPaymentButton {
+  min-height: 48px;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 18px;
+  color: #06111f;
+  background: #f6c75a;
+  cursor: pointer;
+  font-weight: 900;
+  font-size: 15px;
+}
+
+.submitPaymentButton:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.submitPaymentButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.formError {
+  padding: 12px;
+  border: 1px solid rgba(255, 100, 100, 0.35);
+  border-radius: 10px;
+  color: #ffb4b4;
+  background: rgba(180, 25, 25, 0.15);
+}
+
+.formSuccess {
+  padding: 12px;
+  border: 1px solid rgba(80, 220, 140, 0.35);
+  border-radius: 10px;
+  color: #a7f3c6;
+  background: rgba(20, 140, 80, 0.15);
+}
+
+.copyNotice {
+  margin-top: 10px;
+  color: #a7f3c6;
+  font-size: 13px;
+}
+
+.paymentDoneNotice {
+  color: #a7f3c6;
+}
+
+.verificationNotice {
+  color: #f6c75a;
+}
+
+.cancelledNotice {
+  color: #ffb4b4;
+}
