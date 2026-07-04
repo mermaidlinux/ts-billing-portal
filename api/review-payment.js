@@ -43,12 +43,28 @@ const REJECT_REASONS = {
     'Pembayaran belum dapat diverifikasi berdasarkan hasil pemeriksaan admin.',
 }
 
-function cleanWaNumber(value) {
-  return String(value || '')
-    .replace(/\+/g, '')
-    .replace(/\s/g, '')
-    .replace(/-/g, '')
+function normalizeWhatsAppNumber(value) {
+  let number = String(value || '')
+    .replace(/\D/g, '')
     .trim()
+
+  if (number.startsWith('0')) {
+    number = `62${number.slice(1)}`
+  } else if (number.startsWith('8')) {
+    number = `62${number}`
+  }
+
+  return number
+}
+
+function maskWhatsAppNumber(value) {
+  const number = String(value || '')
+
+  if (number.length < 7) {
+    return number
+  }
+
+  return `${number.slice(0, 5)}****${number.slice(-3)}`
 }
 
 function formatRupiah(value) {
@@ -58,8 +74,13 @@ function formatRupiah(value) {
 }
 
 function formatPeriod(startDate, endDate) {
-  if (!startDate && !endDate) return '-'
-  if (!endDate) return startDate
+  if (!startDate && !endDate) {
+    return '-'
+  }
+
+  if (!endDate) {
+    return startDate
+  }
 
   return `${startDate} s/d ${endDate}`
 }
@@ -72,71 +93,164 @@ function getAllowedAdminEmails() {
 }
 
 async function verifyAdmin(req) {
-  const authorization = String(req.headers.authorization || '')
+  const authorization = String(
+    req.headers.authorization || ''
+  )
 
   if (!authorization.startsWith('Bearer ')) {
     throw new Error('UNAUTHORIZED')
   }
 
-  const accessToken = authorization.slice(7).trim()
+  const accessToken = authorization
+    .slice(7)
+    .trim()
 
   const {
     data: { user },
     error,
-  } = await supabaseAdmin.auth.getUser(accessToken)
+  } = await supabaseAdmin.auth.getUser(
+    accessToken
+  )
 
   if (error || !user?.email) {
     throw new Error('UNAUTHORIZED')
   }
 
-  const allowedEmails = getAllowedAdminEmails()
+  const allowedEmails =
+    getAllowedAdminEmails()
 
-  if (!allowedEmails.includes(user.email.toLowerCase())) {
+  if (
+    !allowedEmails.includes(
+      user.email.toLowerCase()
+    )
+  ) {
     throw new Error('FORBIDDEN')
   }
 
   return user
 }
 
-async function sendFonnteMessage(target, message) {
-  const token = process.env.FONNTE_TOKEN
-  const cleanTarget = cleanWaNumber(target)
+async function sendFonnteMessage(
+  target,
+  message
+) {
+  const token = String(
+    process.env.FONNTE_TOKEN || ''
+  ).trim()
+
+  const cleanTarget =
+    normalizeWhatsAppNumber(target)
 
   if (!token) {
-    throw new Error('FONNTE_TOKEN belum tersedia di Vercel.')
+    throw new Error(
+      'FONNTE_TOKEN belum tersedia di Vercel.'
+    )
   }
 
   if (!cleanTarget) {
-    throw new Error('Nomor WhatsApp client kosong.')
+    throw new Error(
+      'Nomor WhatsApp client kosong.'
+    )
+  }
+
+  if (
+    cleanTarget.length < 10 ||
+    cleanTarget.length > 15
+  ) {
+    throw new Error(
+      `Format nomor WhatsApp tidak valid: ${cleanTarget}`
+    )
   }
 
   const payload = new URLSearchParams()
 
   payload.set('target', cleanTarget)
   payload.set('message', message)
+
+  /*
+   * Nomor target sudah menggunakan format lengkap:
+   * 628xxxxxxxxxx
+   */
   payload.set('countryCode', '0')
 
-  const response = await fetch('https://api.fonnte.com/send', {
-    method: 'POST',
-    headers: {
-      Authorization: token,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: payload,
-  })
+  const response = await fetch(
+    'https://api.fonnte.com/send',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: token,
+        'Content-Type':
+          'application/x-www-form-urlencoded',
+      },
+      body: payload,
+    }
+  )
 
-  const responseText = await response.text()
+  const responseText =
+    await response.text()
+
+  let responseData = null
+
+  try {
+    responseData = responseText
+      ? JSON.parse(responseText)
+      : null
+  } catch {
+    responseData = null
+  }
+
+  console.log(
+    'FONNTE_SEND_RESULT:',
+    JSON.stringify({
+      target:
+        maskWhatsAppNumber(cleanTarget),
+
+      httpStatus: response.status,
+
+      response:
+        responseData || responseText,
+    })
+  )
 
   if (!response.ok) {
     throw new Error(
-      `Fonnte HTTP ${response.status}: ${responseText}`
+      `Fonnte HTTP ${response.status}: ${
+        responseText ||
+        'Tidak ada respons.'
+      }`
     )
   }
 
-  return responseText
+  if (!responseData) {
+    throw new Error(
+      `Respons Fonnte tidak valid: ${
+        responseText ||
+        'Respons kosong.'
+      }`
+    )
+  }
+
+  if (responseData.status !== true) {
+    const fonnteReason =
+      responseData.reason ||
+      responseData.message ||
+      responseData.detail ||
+      responseData.error ||
+      responseText ||
+      'Fonnte menolak pengiriman.'
+
+    throw new Error(
+      `Fonnte gagal mengirim WhatsApp: ${fonnteReason}`
+    )
+  }
+
+  return responseData
 }
 
-function buildApprovedMessage(invoice, clientName) {
+function buildApprovedMessage(
+  invoice,
+  clientName
+) {
   return `Halo Kak ${clientName} 👋
 
 Pembayaran untuk invoice ${invoice.invoice_no} sebesar ${formatRupiah(
@@ -165,7 +279,8 @@ function buildRejectedMessage({
     process.env.BILLING_BASE_URL ||
     'https://ts-billing-portal.vercel.app'
 
-  const invoiceLink = `${baseUrl}/pay/${invoice.token}`
+  const invoiceLink =
+    `${baseUrl}/pay/${invoice.token}`
 
   return `Halo Kak ${clientName} 👋
 
@@ -185,16 +300,21 @@ Jika membutuhkan bantuan, silakan hubungi Admin. Kami siap membantu.
 TERNAKSUKSES Billing`
 }
 
-export default async function handler(req, res) {
+export default async function handler(
+  req,
+  res
+) {
   if (req.method !== 'POST') {
     return res.status(405).json({
       ok: false,
-      error: 'Only POST requests are allowed.',
+      error:
+        'Only POST requests are allowed.',
     })
   }
 
   try {
-    const adminUser = await verifyAdmin(req)
+    const adminUser =
+      await verifyAdmin(req)
 
     const {
       confirmationId,
@@ -206,14 +326,20 @@ export default async function handler(req, res) {
     if (!confirmationId) {
       return res.status(400).json({
         ok: false,
-        error: 'Confirmation ID belum tersedia.',
+        error:
+          'Confirmation ID belum tersedia.',
       })
     }
 
-    if (!['approve', 'reject'].includes(action)) {
+    if (
+      !['approve', 'reject'].includes(
+        action
+      )
+    ) {
       return res.status(400).json({
         ok: false,
-        error: 'Action harus approve atau reject.',
+        error:
+          'Action harus approve atau reject.',
       })
     }
 
@@ -223,7 +349,13 @@ export default async function handler(req, res) {
     } = await supabaseAdmin
       .from('ts_payment_confirmations')
       .select(
-        'id, invoice_id, client_id, status, payment_note'
+        `
+          id,
+          invoice_id,
+          client_id,
+          status,
+          payment_note
+        `
       )
       .eq('id', confirmationId)
       .maybeSingle()
@@ -235,11 +367,15 @@ export default async function handler(req, res) {
     if (!confirmation) {
       return res.status(404).json({
         ok: false,
-        error: 'Konfirmasi pembayaran tidak ditemukan.',
+        error:
+          'Konfirmasi pembayaran tidak ditemukan.',
       })
     }
 
-    if (confirmation.status !== 'waiting_verification') {
+    if (
+      confirmation.status !==
+      'waiting_verification'
+    ) {
       return res.status(400).json({
         ok: false,
         error:
@@ -247,27 +383,29 @@ export default async function handler(req, res) {
       })
     }
 
-    const { data: invoice, error: invoiceError } =
-      await supabaseAdmin
-        .from('ts_billing_invoices')
-        .select(
-          `
-            id,
-            invoice_no,
-            token,
-            total_amount,
-            period_start,
-            period_end,
-            status,
-            client_id,
-            ts_clients (
-              client_name,
-              whatsapp
-            )
-          `
-        )
-        .eq('id', confirmation.invoice_id)
-        .maybeSingle()
+    const {
+      data: invoice,
+      error: invoiceError,
+    } = await supabaseAdmin
+      .from('ts_billing_invoices')
+      .select(
+        `
+          id,
+          invoice_no,
+          token,
+          total_amount,
+          period_start,
+          period_end,
+          status,
+          client_id,
+          ts_clients (
+            client_name,
+            whatsapp
+          )
+        `
+      )
+      .eq('id', confirmation.invoice_id)
+      .maybeSingle()
 
     if (invoiceError) {
       throw invoiceError
@@ -281,48 +419,64 @@ export default async function handler(req, res) {
     }
 
     const clientName =
-      invoice.ts_clients?.client_name || 'Client'
+      invoice.ts_clients?.client_name ||
+      'Client'
 
     const whatsapp =
       invoice.ts_clients?.whatsapp || ''
 
-    const now = new Date().toISOString()
+    if (!whatsapp) {
+      return res.status(400).json({
+        ok: false,
+        error:
+          'Nomor WhatsApp client belum diisi.',
+      })
+    }
+
+    const now =
+      new Date().toISOString()
 
     let whatsappMessage = ''
     let resultStatus = ''
 
     if (action === 'approve') {
-      const { error: approveError } = await supabaseAdmin
-        .from('ts_payment_confirmations')
-        .update({
-          status: 'approved',
-          approved_at: now,
-          approved_by: adminUser.email,
-        })
-        .eq('id', confirmation.id)
+      const { error: approveError } =
+        await supabaseAdmin
+          .from(
+            'ts_payment_confirmations'
+          )
+          .update({
+            status: 'approved',
+            approved_at: now,
+            approved_by:
+              adminUser.email,
+          })
+          .eq('id', confirmation.id)
 
       if (approveError) {
         throw approveError
       }
 
-      const { error: invoiceUpdateError } =
-        await supabaseAdmin
-          .from('ts_billing_invoices')
-          .update({
-            status: 'paid',
-            paid_at: now,
-            updated_at: now,
-          })
-          .eq('id', invoice.id)
+      const {
+        error: invoiceUpdateError,
+      } = await supabaseAdmin
+        .from('ts_billing_invoices')
+        .update({
+          status: 'paid',
+          paid_at: now,
+          updated_at: now,
+        })
+        .eq('id', invoice.id)
 
       if (invoiceUpdateError) {
         throw invoiceUpdateError
       }
 
-      whatsappMessage = buildApprovedMessage(
-        invoice,
-        clientName
-      )
+      whatsappMessage =
+        buildApprovedMessage(
+          invoice,
+          clientName
+        )
 
       resultStatus = 'paid'
     }
@@ -332,14 +486,17 @@ export default async function handler(req, res) {
         REJECT_REASONS[rejectReason] ||
         REJECT_REASONS.lainnya
 
-      const customNote = String(rejectNote || '').trim()
+      const customNote = String(
+        rejectNote || ''
+      ).trim()
 
-      const rejectionMessage = customNote
-        ? `${standardReason}
+      const rejectionMessage =
+        customNote
+          ? `${standardReason}
 
 Catatan admin:
 ${customNote}`
-        : standardReason
+          : standardReason
 
       const existingNote = String(
         confirmation.payment_note || ''
@@ -352,51 +509,61 @@ ${customNote}`
         .filter(Boolean)
         .join('\n\n')
 
-      const { error: rejectError } = await supabaseAdmin
-        .from('ts_payment_confirmations')
-        .update({
-          status: 'rejected',
-          payment_note: updatedPaymentNote,
-          approved_at: null,
-          approved_by: adminUser.email,
-        })
-        .eq('id', confirmation.id)
+      const { error: rejectError } =
+        await supabaseAdmin
+          .from(
+            'ts_payment_confirmations'
+          )
+          .update({
+            status: 'rejected',
+            payment_note:
+              updatedPaymentNote,
+            approved_at: null,
+            approved_by:
+              adminUser.email,
+          })
+          .eq('id', confirmation.id)
 
       if (rejectError) {
         throw rejectError
       }
 
-      const { error: invoiceUpdateError } =
-        await supabaseAdmin
-          .from('ts_billing_invoices')
-          .update({
-            status: 'draft',
-            submitted_at: null,
-            updated_at: now,
-          })
-          .eq('id', invoice.id)
+      const {
+        error: invoiceUpdateError,
+      } = await supabaseAdmin
+        .from('ts_billing_invoices')
+        .update({
+          status: 'draft',
+          submitted_at: null,
+          paid_at: null,
+          updated_at: now,
+        })
+        .eq('id', invoice.id)
 
       if (invoiceUpdateError) {
         throw invoiceUpdateError
       }
 
-      whatsappMessage = buildRejectedMessage({
-        invoice,
-        clientName,
-        rejectionMessage,
-      })
+      whatsappMessage =
+        buildRejectedMessage({
+          invoice,
+          clientName,
+          rejectionMessage,
+        })
 
       resultStatus = 'draft'
     }
 
     let notificationSent = false
     let notificationError = null
+    let notificationResult = null
 
     try {
-      await sendFonnteMessage(
-        whatsapp,
-        whatsappMessage
-      )
+      notificationResult =
+        await sendFonnteMessage(
+          whatsapp,
+          whatsappMessage
+        )
 
       notificationSent = true
     } catch (sendError) {
@@ -405,7 +572,8 @@ ${customNote}`
         sendError
       )
 
-      notificationError = sendError.message
+      notificationError =
+        sendError.message
     }
 
     return res.status(200).json({
@@ -414,25 +582,36 @@ ${customNote}`
       invoiceStatus: resultStatus,
       notificationSent,
       notificationError,
+      notificationResult,
+
       message:
         action === 'approve'
           ? 'Pembayaran disetujui.'
           : 'Pembayaran ditolak dan client dapat upload ulang.',
     })
   } catch (error) {
-    console.error('REVIEW_PAYMENT_ERROR:', error)
+    console.error(
+      'REVIEW_PAYMENT_ERROR:',
+      error
+    )
 
-    if (error.message === 'UNAUTHORIZED') {
+    if (
+      error.message === 'UNAUTHORIZED'
+    ) {
       return res.status(401).json({
         ok: false,
-        error: 'Silakan login sebagai admin.',
+        error:
+          'Silakan login sebagai admin.',
       })
     }
 
-    if (error.message === 'FORBIDDEN') {
+    if (
+      error.message === 'FORBIDDEN'
+    ) {
       return res.status(403).json({
         ok: false,
-        error: 'Akun ini tidak memiliki akses admin.',
+        error:
+          'Akun ini tidak memiliki akses admin.',
       })
     }
 
