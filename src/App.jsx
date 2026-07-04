@@ -142,6 +142,7 @@ function InvoicePage() {
   const [paymentNote, setPaymentNote] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
+  const [uploadSuccess, setUploadSuccess] = useState('')
   const [copyNotice, setCopyNotice] = useState('')
   const [fileInputKey, setFileInputKey] = useState(0)
 
@@ -152,14 +153,16 @@ function InvoicePage() {
       setLoading(true)
       setError('')
 
-      const { data: invoiceData, error: invoiceError } =
-        await supabase
-          .from('ts_billing_invoices')
-          .select(
-            '*, ts_clients(client_name, whatsapp, email)'
-          )
-          .eq('token', token)
-          .maybeSingle()
+      const {
+        data: invoiceData,
+        error: invoiceError,
+      } = await supabase
+        .from('ts_billing_invoices')
+        .select(
+          '*, ts_clients(client_name, whatsapp, email)'
+        )
+        .eq('token', token)
+        .maybeSingle()
 
       if (invoiceError) {
         setError(invoiceError.message)
@@ -220,6 +223,7 @@ function InvoicePage() {
       event.target.files?.[0] || null
 
     setUploadError('')
+    setUploadSuccess('')
 
     if (!selectedFile) {
       setUploadFile(null)
@@ -272,6 +276,7 @@ function InvoicePage() {
 
     setUploading(true)
     setUploadError('')
+    setUploadSuccess('')
 
     try {
       const prepareResponse = await fetch(
@@ -359,6 +364,10 @@ function InvoicePage() {
       setUploadFile(null)
       setPaymentNote('')
       setFileInputKey((current) => current + 1)
+
+      setUploadSuccess(
+        'Bukti pembayaran berhasil dikirim dan sedang menunggu verifikasi admin.'
+      )
     } catch (submitError) {
       setUploadError(
         submitError.message ||
@@ -496,6 +505,7 @@ function InvoicePage() {
               <tr>
                 <th>Layanan</th>
                 <th>Keterangan</th>
+
                 <th className="right">
                   Nominal
                 </th>
@@ -589,6 +599,12 @@ Invoice: ${invoice.invoice_no}`,
             </div>
           )}
         </div>
+
+        {uploadSuccess && (
+          <div className="formSuccess">
+            {uploadSuccess}
+          </div>
+        )}
 
         {currentStatus === 'paid' && (
           <div className="notice paymentDoneNotice">
@@ -833,9 +849,9 @@ function AdminPage() {
       }
 
       setPayments(result.payments || [])
-    } catch (error) {
+    } catch (loadError) {
       setPaymentsError(
-        error.message ||
+        loadError.message ||
           'Gagal memuat daftar pembayaran.'
       )
     } finally {
@@ -896,6 +912,7 @@ function AdminPage() {
         headers: {
           'Content-Type':
             'application/json',
+
           Authorization:
             `Bearer ${session.access_token}`,
         },
@@ -925,7 +942,9 @@ function AdminPage() {
       payment.client?.name || 'Client'
 
     const confirmed = window.confirm(
-      `Setujui pembayaran ${payment.invoice?.invoiceNo || ''} milik ${clientName}?\n\nInvoice akan berubah menjadi LUNAS dan WhatsApp akan dikirim.`
+      `Setujui pembayaran ${
+        payment.invoice?.invoiceNo || ''
+      } milik ${clientName}?\n\nInvoice akan berubah menjadi LUNAS dan WhatsApp akan dikirim.`
     )
 
     if (!confirmed) return
@@ -957,11 +976,11 @@ function AdminPage() {
       }
 
       await loadPayments(session)
-    } catch (error) {
+    } catch (approveError) {
       setActionMessage({
         type: 'error',
         text:
-          error.message ||
+          approveError.message ||
           'Gagal menyetujui pembayaran.',
       })
     } finally {
@@ -992,7 +1011,9 @@ function AdminPage() {
       payment.client?.name || 'Client'
 
     const confirmed = window.confirm(
-      `Tolak pembayaran ${payment.invoice?.invoiceNo || ''} milik ${clientName}?\n\nClient akan menerima WhatsApp dan dapat upload ulang.`
+      `Tolak pembayaran ${
+        payment.invoice?.invoiceNo || ''
+      } milik ${clientName}?\n\nClient akan menerima WhatsApp dan dapat upload ulang.`
     )
 
     if (!confirmed) return
@@ -1038,11 +1059,11 @@ function AdminPage() {
       })
 
       await loadPayments(session)
-    } catch (error) {
+    } catch (rejectError) {
       setActionMessage({
         type: 'error',
         text:
-          error.message ||
+          rejectError.message ||
           'Gagal menolak pembayaran.',
       })
     } finally {
@@ -1186,9 +1207,7 @@ function AdminPage() {
               Menunggu Verifikasi
             </span>
 
-            <strong>
-              {payments.length}
-            </strong>
+            <strong>{payments.length}</strong>
           </div>
 
           <p>
@@ -1422,8 +1441,7 @@ function AdminPage() {
                       <select
                         value={
                           rejectReasons[
-                            payment
-                              .confirmationId
+                            payment.confirmationId
                           ] || ''
                         }
                         onChange={(event) =>
@@ -1431,8 +1449,7 @@ function AdminPage() {
                             (current) => ({
                               ...current,
                               [payment.confirmationId]:
-                                event.target
-                                  .value,
+                                event.target.value,
                             })
                           )
                         }
@@ -1445,12 +1462,8 @@ function AdminPage() {
                         {REJECT_OPTIONS.map(
                           (option) => (
                             <option
-                              key={
-                                option.value
-                              }
-                              value={
-                                option.value
-                              }
+                              key={option.value}
+                              value={option.value}
                             >
                               {option.label}
                             </option>
@@ -1461,16 +1474,12 @@ function AdminPage() {
 
                     <label>
                       Catatan Tambahan
-                      <span>
-                        {' '}
-                        opsional
-                      </span>
+                      <span> opsional</span>
 
                       <textarea
                         value={
                           rejectNotes[
-                            payment
-                              .confirmationId
+                            payment.confirmationId
                           ] || ''
                         }
                         onChange={(event) =>
@@ -1478,8 +1487,7 @@ function AdminPage() {
                             (current) => ({
                               ...current,
                               [payment.confirmationId]:
-                                event.target
-                                  .value,
+                                event.target.value,
                             })
                           )
                         }
