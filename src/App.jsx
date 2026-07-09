@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import AdminNetwork from './AdminNetwork.jsx'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1231,6 +1232,8 @@ function AdminPage() {
           </div>
         )}
 
+        <AdminNetwork session={session} />
+        
         {paymentsLoading && (
           <div className="adminEmptyState">
             Memuat pembayaran...
