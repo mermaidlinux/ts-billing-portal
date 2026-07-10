@@ -757,8 +757,9 @@ function AdminPage() {
   const [loginError, setLoginError] =
     useState('')
 
-  const [activeAdminMenu, setActiveAdminMenu] = useState('home')
-  
+  const [activeAdminMenu, setActiveAdminMenu] =
+    useState('home')
+
   const [payments, setPayments] =
     useState([])
 
@@ -1167,375 +1168,483 @@ function AdminPage() {
   }
 
   return (
-    <main className="adminPage">
-      <section className="adminContainer">
-        <header className="adminHeader">
-          <div className="adminHeaderBrand">
-            <img
-              src="/logo-ternaksukses.png"
-              alt="TERNAKSUKSES"
-            />
+    <AdminShell
+      activeMenu={activeAdminMenu}
+      onMenuChange={setActiveAdminMenu}
+      adminName={session.user.email || 'TERNAKSUKSES Admin'}
+    >
+      {activeAdminMenu === 'home' && (
+        <section className="adminContainer">
+          <header className="adminHeader">
+            <div className="adminHeaderBrand">
+              <img
+                src="/logo-ternaksukses.png"
+                alt="TERNAKSUKSES"
+              />
 
-            <div>
-              <p>TERNAKSUKSES</p>
-              <h1>Billing Admin</h1>
+              <div>
+                <p>TERNAKSUKSES</p>
+                <h1>Billing Admin</h1>
+              </div>
             </div>
+
+            <div className="adminHeaderActions">
+              <span>{session.user.email}</span>
+
+              <button
+                type="button"
+                className="adminSecondaryButton"
+                onClick={() =>
+                  loadPayments(session)
+                }
+                disabled={paymentsLoading}
+              >
+                ↻ Refresh
+              </button>
+
+              <button
+                type="button"
+                className="adminLogoutButton"
+                onClick={handleLogout}
+              >
+                Keluar
+              </button>
+            </div>
+          </header>
+
+          <div className="adminSummary">
+            <div>
+              <span>
+                Menunggu Verifikasi
+              </span>
+
+              <strong>{payments.length}</strong>
+            </div>
+
+            <p>
+              Pilih menu di kiri untuk membuka Jaringan,
+              Invoice, Timeline, dan Setting. Sidebar bisa
+              kamu kecilkan atau lebarkan.
+            </p>
           </div>
 
-          <div className="adminHeaderActions">
-            <span>{session.user.email}</span>
-
-            <button
-              type="button"
-              className="adminSecondaryButton"
-              onClick={() =>
-                loadPayments(session)
-              }
-              disabled={paymentsLoading}
+          {actionMessage && (
+            <div
+              className={`adminAlert ${actionMessage.type}`}
             >
-              ↻ Refresh
-            </button>
-
-            <button
-              type="button"
-              className="adminLogoutButton"
-              onClick={handleLogout}
-            >
-              Keluar
-            </button>
-          </div>
-        </header>
-
-        <div className="adminSummary">
-          <div>
-            <span>
-              Menunggu Verifikasi
-            </span>
-
-            <strong>{payments.length}</strong>
-          </div>
-
-          <p>
-            Periksa nominal, rekening tujuan,
-            tanggal transaksi, dan kejelasan
-            bukti pembayaran.
-          </p>
-        </div>
-
-        {actionMessage && (
-          <div
-            className={`adminAlert ${actionMessage.type}`}
-          >
-            {actionMessage.text}
-          </div>
-        )}
-
-        {paymentsError && (
-          <div className="adminAlert error">
-            {paymentsError}
-          </div>
-        )}
-
-        <AdminNetwork session={session} />
-        <AdminActivityLogs session={session} />
-        
-        {paymentsLoading && (
-          <div className="adminEmptyState">
-            Memuat pembayaran...
-          </div>
-        )}
-
-        {!paymentsLoading &&
-          !paymentsError &&
-          payments.length === 0 && (
-            <div className="adminEmptyState">
-              ✅ Tidak ada pembayaran yang
-              menunggu verifikasi.
+              {actionMessage.text}
             </div>
           )}
 
-        {!paymentsLoading &&
-          payments.map((payment) => {
-            const isPdf = String(
-              payment.slipPath || ''
-            )
-              .toLowerCase()
-              .endsWith('.pdf')
+          {paymentsError && (
+            <div className="adminAlert error">
+              {paymentsError}
+            </div>
+          )}
 
-            const isProcessing =
-              actionId ===
-              payment.confirmationId
+          <div className="adminEmptyState">
+            ✅ Dashboard sudah dipisah per menu. Klik
+            <strong> Invoice </strong>
+            untuk review pembayaran, klik
+            <strong> Jaringan </strong>
+            untuk struktur partner, dan klik
+            <strong> Timeline </strong>
+            untuk activity log.
+          </div>
+        </section>
+      )}
 
-            return (
-              <article
-                className="adminPaymentCard"
-                key={payment.confirmationId}
+      {activeAdminMenu === 'network' && (
+        <AdminNetwork session={session} />
+      )}
+
+      {activeAdminMenu === 'timeline' && (
+        <AdminActivityLogs session={session} />
+      )}
+
+      {activeAdminMenu === 'settings' && (
+        <section className="adminContainer">
+          <div className="adminSummary">
+            <div>
+              <span>Setting</span>
+              <strong>PS</strong>
+            </div>
+
+            <p>
+              Menu setting PS, fee, split, broker time,
+              dan rule akan kita isi di step berikutnya.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {activeAdminMenu === 'invoice' && (
+        <section className="adminContainer">
+          <header className="adminHeader">
+            <div className="adminHeaderBrand">
+              <img
+                src="/logo-ternaksukses.png"
+                alt="TERNAKSUKSES"
+              />
+
+              <div>
+                <p>TERNAKSUKSES</p>
+                <h1>Invoice Review</h1>
+              </div>
+            </div>
+
+            <div className="adminHeaderActions">
+              <span>{session.user.email}</span>
+
+              <button
+                type="button"
+                className="adminSecondaryButton"
+                onClick={() =>
+                  loadPayments(session)
+                }
+                disabled={paymentsLoading}
               >
-                <div className="adminPaymentTop">
-                  <div>
-                    <p className="adminSmallLabel">
-                      Client
-                    </p>
+                ↻ Refresh
+              </button>
 
-                    <h2>
-                      {payment.client?.name ||
-                        'Client tidak ditemukan'}
-                    </h2>
+              <button
+                type="button"
+                className="adminLogoutButton"
+                onClick={handleLogout}
+              >
+                Keluar
+              </button>
+            </div>
+          </header>
 
-                    <p>
-                      WhatsApp:{' '}
-                      {payment.client?.whatsapp ||
-                        '-'}
-                    </p>
+          <div className="adminSummary">
+            <div>
+              <span>
+                Menunggu Verifikasi
+              </span>
+
+              <strong>{payments.length}</strong>
+            </div>
+
+            <p>
+              Periksa nominal, rekening tujuan,
+              tanggal transaksi, dan kejelasan
+              bukti pembayaran.
+            </p>
+          </div>
+
+          {actionMessage && (
+            <div
+              className={`adminAlert ${actionMessage.type}`}
+            >
+              {actionMessage.text}
+            </div>
+          )}
+
+          {paymentsError && (
+            <div className="adminAlert error">
+              {paymentsError}
+            </div>
+          )}
+
+          {paymentsLoading && (
+            <div className="adminEmptyState">
+              Memuat pembayaran...
+            </div>
+          )}
+
+          {!paymentsLoading &&
+            !paymentsError &&
+            payments.length === 0 && (
+              <div className="adminEmptyState">
+                ✅ Tidak ada pembayaran yang
+                menunggu verifikasi.
+              </div>
+            )}
+
+          {!paymentsLoading &&
+            payments.map((payment) => {
+              const isPdf = String(
+                payment.slipPath || ''
+              )
+                .toLowerCase()
+                .endsWith('.pdf')
+
+              const isProcessing =
+                actionId ===
+                payment.confirmationId
+
+              return (
+                <article
+                  className="adminPaymentCard"
+                  key={payment.confirmationId}
+                >
+                  <div className="adminPaymentTop">
+                    <div>
+                      <p className="adminSmallLabel">
+                        Client
+                      </p>
+
+                      <h2>
+                        {payment.client?.name ||
+                          'Client tidak ditemukan'}
+                      </h2>
+
+                      <p>
+                        WhatsApp:{' '}
+                        {payment.client?.whatsapp ||
+                          '-'}
+                      </p>
+                    </div>
+
+                    <div className="adminInvoiceAmount">
+                      <span>
+                        Total Invoice
+                      </span>
+
+                      <strong>
+                        {formatRupiah(
+                          payment.invoice
+                            ?.totalAmount
+                        )}
+                      </strong>
+                    </div>
                   </div>
 
-                  <div className="adminInvoiceAmount">
-                    <span>
-                      Total Invoice
-                    </span>
+                  <div className="adminPaymentGrid">
+                    <div>
+                      <span>Invoice</span>
 
-                    <strong>
-                      {formatRupiah(
-                        payment.invoice
-                          ?.totalAmount
-                      )}
-                    </strong>
-                  </div>
-                </div>
+                      <strong>
+                        {payment.invoice
+                          ?.invoiceNo || '-'}
+                      </strong>
+                    </div>
 
-                <div className="adminPaymentGrid">
-                  <div>
-                    <span>Invoice</span>
+                    <div>
+                      <span>
+                        Nominal Diklaim
+                      </span>
 
-                    <strong>
-                      {payment.invoice
-                        ?.invoiceNo || '-'}
-                    </strong>
-                  </div>
+                      <strong>
+                        {formatRupiah(
+                          payment.amountClaimed
+                        )}
+                      </strong>
+                    </div>
 
-                  <div>
-                    <span>
-                      Nominal Diklaim
-                    </span>
+                    <div>
+                      <span>Periode</span>
 
-                    <strong>
-                      {formatRupiah(
-                        payment.amountClaimed
-                      )}
-                    </strong>
-                  </div>
+                      <strong>
+                        {payment.invoice
+                          ?.periodStart || '-'}{' '}
+                        s/d{' '}
+                        {payment.invoice
+                          ?.periodEnd || '-'}
+                      </strong>
+                    </div>
 
-                  <div>
-                    <span>Periode</span>
+                    <div>
+                      <span>Dikirim</span>
 
-                    <strong>
-                      {payment.invoice
-                        ?.periodStart || '-'}{' '}
-                      s/d{' '}
-                      {payment.invoice
-                        ?.periodEnd || '-'}
-                    </strong>
+                      <strong>
+                        {formatDateTime(
+                          payment.uploadedAt
+                        )}
+                      </strong>
+                    </div>
                   </div>
 
-                  <div>
-                    <span>Dikirim</span>
+                  {payment.paymentNote && (
+                    <div className="adminClientNote">
+                      <span>
+                        Catatan Client
+                      </span>
 
-                    <strong>
-                      {formatDateTime(
-                        payment.uploadedAt
-                      )}
-                    </strong>
-                  </div>
-                </div>
-
-                {payment.paymentNote && (
-                  <div className="adminClientNote">
-                    <span>
-                      Catatan Client
-                    </span>
-
-                    <p>
-                      {payment.paymentNote}
-                    </p>
-                  </div>
-                )}
-
-                <div className="adminSlipSection">
-                  <div className="adminSlipHeader">
-                    <h3>
-                      Bukti Transfer
-                    </h3>
-
-                    {payment.slipUrl && (
-                      <a
-                        href={payment.slipUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Buka Ukuran Penuh ↗
-                      </a>
-                    )}
-                  </div>
-
-                  {!payment.slipUrl && (
-                    <div className="adminAlert error">
-                      Bukti transfer tidak dapat
-                      dibuka.
-                      {payment.slipError
-                        ? ` ${payment.slipError}`
-                        : ''}
+                      <p>
+                        {payment.paymentNote}
+                      </p>
                     </div>
                   )}
 
-                  {payment.slipUrl &&
-                    isPdf && (
-                      <a
-                        className="adminPdfButton"
-                        href={payment.slipUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        📄 Buka Bukti Transfer PDF
-                      </a>
+                  <div className="adminSlipSection">
+                    <div className="adminSlipHeader">
+                      <h3>
+                        Bukti Transfer
+                      </h3>
+
+                      {payment.slipUrl && (
+                        <a
+                          href={payment.slipUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Buka Ukuran Penuh ↗
+                        </a>
+                      )}
+                    </div>
+
+                    {!payment.slipUrl && (
+                      <div className="adminAlert error">
+                        Bukti transfer tidak dapat
+                        dibuka.
+                        {payment.slipError
+                          ? ` ${payment.slipError}`
+                          : ''}
+                      </div>
                     )}
 
-                  {payment.slipUrl &&
-                    !isPdf && (
-                      <a
-                        href={payment.slipUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="adminSlipImageLink"
+                    {payment.slipUrl &&
+                      isPdf && (
+                        <a
+                          className="adminPdfButton"
+                          href={payment.slipUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          📄 Buka Bukti Transfer PDF
+                        </a>
+                      )}
+
+                    {payment.slipUrl &&
+                      !isPdf && (
+                        <a
+                          href={payment.slipUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="adminSlipImageLink"
+                        >
+                          <img
+                            className="adminSlipImage"
+                            src={payment.slipUrl}
+                            alt="Bukti transfer client"
+                          />
+                        </a>
+                      )}
+                  </div>
+
+                  <div className="adminReviewSection">
+                    <h3>
+                      Keputusan Admin
+                    </h3>
+
+                    <div className="adminApproveArea">
+                      <p>
+                        Pastikan pembayaran sudah
+                        masuk dan seluruh data
+                        transaksi sesuai.
+                      </p>
+
+                      <button
+                        type="button"
+                        className="adminApproveButton"
+                        onClick={() =>
+                          handleApprove(payment)
+                        }
+                        disabled={isProcessing}
                       >
-                        <img
-                          className="adminSlipImage"
-                          src={payment.slipUrl}
-                          alt="Bukti transfer client"
+                        {isProcessing
+                          ? 'Memproses...'
+                          : '✓ Approve Pembayaran'}
+                      </button>
+                    </div>
+
+                    <div className="adminRejectArea">
+                      <label>
+                        Alasan Penolakan
+
+                        <select
+                          value={
+                            rejectReasons[
+                              payment.confirmationId
+                            ] || ''
+                          }
+                          onChange={(event) =>
+                            setRejectReasons(
+                              (current) => ({
+                                ...current,
+                                [payment.confirmationId]:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                          disabled={isProcessing}
+                        >
+                          <option value="">
+                            Pilih alasan
+                          </option>
+
+                          {REJECT_OPTIONS.map(
+                            (option) => (
+                              <option
+                                key={option.value}
+                                value={option.value}
+                              >
+                                {option.label}
+                              </option>
+                            )
+                          )}
+                        </select>
+                      </label>
+
+                      <label>
+                        Catatan Tambahan
+                        <span> opsional</span>
+
+                        <textarea
+                          value={
+                            rejectNotes[
+                              payment.confirmationId
+                            ] || ''
+                          }
+                          onChange={(event) =>
+                            setRejectNotes(
+                              (current) => ({
+                                ...current,
+                                [payment.confirmationId]:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                          placeholder="Contoh: Nominal yang diterima Rp350.000. Masih kurang Rp50.000."
+                          rows="3"
+                          maxLength="500"
+                          disabled={isProcessing}
                         />
-                      </a>
-                    )}
-                </div>
+                      </label>
 
-                <div className="adminReviewSection">
-                  <h3>
-                    Keputusan Admin
-                  </h3>
-
-                  <div className="adminApproveArea">
-                    <p>
-                      Pastikan pembayaran sudah
-                      masuk dan seluruh data
-                      transaksi sesuai.
-                    </p>
-
-                    <button
-                      type="button"
-                      className="adminApproveButton"
-                      onClick={() =>
-                        handleApprove(payment)
-                      }
-                      disabled={isProcessing}
-                    >
-                      {isProcessing
-                        ? 'Memproses...'
-                        : '✓ Approve Pembayaran'}
-                    </button>
-                  </div>
-
-                  <div className="adminRejectArea">
-                    <label>
-                      Alasan Penolakan
-
-                      <select
-                        value={
-                          rejectReasons[
-                            payment.confirmationId
-                          ] || ''
-                        }
-                        onChange={(event) =>
-                          setRejectReasons(
-                            (current) => ({
-                              ...current,
-                              [payment.confirmationId]:
-                                event.target.value,
-                            })
-                          )
+                      <button
+                        type="button"
+                        className="adminRejectButton"
+                        onClick={() =>
+                          handleReject(payment)
                         }
                         disabled={isProcessing}
                       >
-                        <option value="">
-                          Pilih alasan
-                        </option>
-
-                        {REJECT_OPTIONS.map(
-                          (option) => (
-                            <option
-                              key={option.value}
-                              value={option.value}
-                            >
-                              {option.label}
-                            </option>
-                          )
-                        )}
-                      </select>
-                    </label>
-
-                    <label>
-                      Catatan Tambahan
-                      <span> opsional</span>
-
-                      <textarea
-                        value={
-                          rejectNotes[
-                            payment.confirmationId
-                          ] || ''
-                        }
-                        onChange={(event) =>
-                          setRejectNotes(
-                            (current) => ({
-                              ...current,
-                              [payment.confirmationId]:
-                                event.target.value,
-                            })
-                          )
-                        }
-                        placeholder="Contoh: Nominal yang diterima Rp350.000. Masih kurang Rp50.000."
-                        rows="3"
-                        maxLength="500"
-                        disabled={isProcessing}
-                      />
-                    </label>
-
-                    <button
-                      type="button"
-                      className="adminRejectButton"
-                      onClick={() =>
-                        handleReject(payment)
-                      }
-                      disabled={isProcessing}
-                    >
-                      {isProcessing
-                        ? 'Memproses...'
-                        : '✕ Reject Pembayaran'}
-                    </button>
+                        {isProcessing
+                          ? 'Memproses...'
+                          : '✕ Reject Pembayaran'}
+                      </button>
+                    </div>
                   </div>
-                </div>
 
-                {payment.invoice?.token && (
-                  <a
-                    className="adminInvoiceLink"
-                    href={`/pay/${payment.invoice.token}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Buka Halaman Invoice Client ↗
-                  </a>
-                )}
-              </article>
-            )
-          })}
-      </section>
-    </main>
+                  {payment.invoice?.token && (
+                    <a
+                      className="adminInvoiceLink"
+                      href={`/pay/${payment.invoice.token}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Buka Halaman Invoice Client ↗
+                    </a>
+                  )}
+                </article>
+              )
+            })}
+        </section>
+      )}
+    </AdminShell>
   )
 }
 
