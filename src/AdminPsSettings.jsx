@@ -671,6 +671,40 @@ export default function AdminPsSettings({ session }) {
       render: (setting) => setting.note || '-',
     },
   ]
+
+  const fxColumns = [
+    {
+      key: 'source',
+      label: 'Source',
+      width: 180,
+      render: (fx) => fx.source || '-',
+    },
+    {
+      key: 'base_currency',
+      label: 'Base',
+      width: 120,
+      render: (fx) => fx.base_currency || '-',
+    },
+    {
+      key: 'quote_currency',
+      label: 'Quote',
+      width: 120,
+      render: (fx) => fx.quote_currency || '-',
+    },
+    {
+      key: 'rate',
+      label: 'Rate',
+      width: 180,
+      render: (fx) =>
+        Number(fx.rate || 0).toLocaleString('id-ID'),
+    },
+    {
+      key: 'source_date',
+      label: 'Source Date',
+      width: 220,
+      render: (fx) => formatDate(fx.source_date),
+    },
+  ]
   
   return (
     <div style={styles.wrap}>
