@@ -20,16 +20,22 @@ const MENU_ITEMS = [
     description: 'Tagihan & pembayaran',
   },
   {
-    key: 'timeline',
-    label: 'Timeline',
-    icon: '🕒',
-    description: 'Activity log sistem',
-  },
-  {
     key: 'settings',
     label: 'Setting',
     icon: '⚙️',
     description: 'PS, fee, rules',
+  },
+  {
+    key: 'ps_requests',
+    label: 'PS Requests',
+    icon: '📌',
+    description: 'Request perubahan PS',
+  },
+  {
+    key: 'timeline',
+    label: 'Timeline',
+    icon: '🕒',
+    description: 'Activity log sistem',
   },
 ]
 
