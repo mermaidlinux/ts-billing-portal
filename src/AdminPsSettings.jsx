@@ -31,12 +31,67 @@ function getPartnerName(partnerMap, partnerId) {
   return partnerMap?.[partnerId]?.display_name || partnerId
 }
 
+function pad(number) {
+  return String(number).padStart(2, '0')
+}
+
+function toDateTimeLocalValue(date) {
+  return (
+    date.getFullYear() +
+    '-' +
+    pad(date.getMonth() + 1) +
+    '-' +
+    pad(date.getDate()) +
+    'T' +
+    pad(date.getHours()) +
+    ':' +
+    pad(date.getMinutes())
+  )
+}
+
+function getNextMondayLocalValue(hour) {
+  const date = new Date()
+  const day = date.getDay()
+  const diff = day === 0 ? 1 : 8 - day
+
+  date.setDate(date.getDate() + diff)
+  date.setHours(hour, 0, 0, 0)
+
+  return toDateTimeLocalValue(date)
+}
+
+function withSeconds(value) {
+  if (!value) return ''
+  if (value.length === 16) return `${value}:00`
+  return value
+}
+
+function emptyToNull(value) {
+  if (value === null || value === undefined || value === '') return null
+  return value
+}
+
 export default function AdminPsSettings({ session }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [summary, setSummary] = useState(null)
   const [data, setData] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  const [selectedClientSettingId, setSelectedClientSettingId] = useState('')
+  const [newPsTierId, setNewPsTierId] = useState('')
+  const [psFeeRateOverride, setPsFeeRateOverride] = useState('')
+  const [fxMode, setFxMode] = useState('MANUAL')
+  const [fixedFxRate, setFixedFxRate] = useState('')
+  const [effectiveFromGmt7, setEffectiveFromGmt7] = useState('')
+  const [effectiveFromBroker, setEffectiveFromBroker] = useState('')
+  const [ticketApplyRule, setTicketApplyRule] = useState(
+    'CLOSE_TIME_BROKER_GTE_EFFECTIVE_FROM'
+  )
+  const [note, setNote] = useState('')
+  const [requestLoading, setRequestLoading] = useState(false)
+  const [requestError, setRequestError] = useState('')
+  const [requestSuccess, setRequestSuccess] = useState('')
 
   const token = session?.access_token
 
@@ -72,6 +127,35 @@ export default function AdminPsSettings({ session }) {
     loadSettings()
   }, [token, refreshKey])
 
+  useEffect(() => {
+    if (!data) return
+
+    const firstClientSetting = data.client_settings?.[0]
+    const firstTier = data.tiers?.[0]
+
+    if (!selectedClientSettingId && firstClientSetting?.id) {
+      setSelectedClientSettingId(firstClientSetting.id)
+    }
+
+    if (!newPsTierId) {
+      setNewPsTierId(firstClientSetting?.ps_tier_id || firstTier?.id || '')
+    }
+
+    if (!effectiveFromGmt7) {
+      setEffectiveFromGmt7(getNextMondayLocalValue(6))
+    }
+
+    if (!effectiveFromBroker) {
+      setEffectiveFromBroker(getNextMondayLocalValue(0))
+    }
+  }, [
+    data,
+    selectedClientSettingId,
+    newPsTierId,
+    effectiveFromGmt7,
+    effectiveFromBroker,
+  ])
+
   const tierMap = useMemo(() => {
     const map = {}
 
@@ -82,9 +166,88 @@ export default function AdminPsSettings({ session }) {
     return map
   }, [data])
 
+  const selectedClientSetting = useMemo(() => {
+    return (data?.client_settings || []).find(
+      (setting) => setting.id === selectedClientSettingId
+    )
+  }, [data, selectedClientSettingId])
+
+  const selectedCurrentTier =
+    tierMap[selectedClientSetting?.ps_tier_id]
+
+  const selectedNewTier =
+    tierMap[newPsTierId]
+
   const activeSplit = data?.master_splits?.[0] || null
   const activeRule = data?.distribution_rules?.[0] || null
   const partnerMap = data?.partner_map || {}
+
+  async function handleSubmitChangeRequest(event) {
+    event.preventDefault()
+
+    if (!token) {
+      setRequestError('Session admin tidak ditemukan. Login ulang dulu.')
+      return
+    }
+
+    if (!selectedClientSettingId) {
+      setRequestError('Pilih client setting terlebih dahulu.')
+      return
+    }
+
+    if (!newPsTierId) {
+      setRequestError('Pilih PS tier baru terlebih dahulu.')
+      return
+    }
+
+    if (!effectiveFromGmt7 || !effectiveFromBroker) {
+      setRequestError('Effective GMT+7 dan Broker Time wajib diisi.')
+      return
+    }
+
+    setRequestLoading(true)
+    setRequestError('')
+    setRequestSuccess('')
+
+    try {
+      const res = await fetch('/api/admin-request-ps-change', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          clientSettingId: selectedClientSettingId,
+          newPsTierId,
+          psFeeRateOverride: emptyToNull(psFeeRateOverride),
+          fxMode,
+          fixedFxRate: emptyToNull(fixedFxRate),
+          effectiveFromGmt7: withSeconds(effectiveFromGmt7),
+          effectiveFromBroker: withSeconds(effectiveFromBroker),
+          ticketApplyRule,
+          note: note.trim(),
+        }),
+      })
+
+      const result = await res.json()
+
+      if (!res.ok || !result.ok) {
+        throw new Error(result.error || 'Gagal membuat request perubahan PS')
+      }
+
+      setRequestSuccess(
+        result.message ||
+          'Request perubahan PS berhasil dibuat. Cek menu Timeline.'
+      )
+
+      setNote('')
+      setRefreshKey((prev) => prev + 1)
+    } catch (err) {
+      setRequestError(err.message || 'Gagal membuat request perubahan PS')
+    } finally {
+      setRequestLoading(false)
+    }
+  }
 
   const styles = {
     wrap: {
@@ -130,6 +293,11 @@ export default function AdminPsSettings({ session }) {
       gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
       gap: 12,
     },
+    formGrid: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+      gap: 12,
+    },
     card: {
       padding: 16,
       borderRadius: 16,
@@ -164,6 +332,42 @@ export default function AdminPsSettings({ session }) {
       color: '#94a3b8',
       fontSize: 13,
       lineHeight: 1.5,
+    },
+    inputLabel: {
+      display: 'block',
+      color: '#cbd5e1',
+      fontSize: 13,
+      fontWeight: 800,
+    },
+    inputSub: {
+      display: 'block',
+      marginTop: 4,
+      marginBottom: 7,
+      color: '#94a3b8',
+      fontSize: 12,
+      fontWeight: 500,
+    },
+    input: {
+      width: '100%',
+      boxSizing: 'border-box',
+      padding: '11px 12px',
+      borderRadius: 12,
+      border: '1px solid rgba(148, 163, 184, 0.22)',
+      background: 'rgba(2, 6, 23, 0.55)',
+      color: '#e5e7eb',
+      outline: 'none',
+    },
+    textarea: {
+      width: '100%',
+      boxSizing: 'border-box',
+      padding: '11px 12px',
+      borderRadius: 12,
+      border: '1px solid rgba(148, 163, 184, 0.22)',
+      background: 'rgba(2, 6, 23, 0.55)',
+      color: '#e5e7eb',
+      outline: 'none',
+      minHeight: 90,
+      resize: 'vertical',
     },
     tableWrap: {
       overflowX: 'auto',
@@ -215,10 +419,39 @@ export default function AdminPsSettings({ session }) {
       border: '1px solid rgba(239, 68, 68, 0.28)',
       color: '#fecaca',
     },
+    success: {
+      padding: 14,
+      borderRadius: 14,
+      background: 'rgba(34, 197, 94, 0.12)',
+      border: '1px solid rgba(34, 197, 94, 0.28)',
+      color: '#bbf7d0',
+    },
     empty: {
       padding: 16,
       color: '#94a3b8',
       textAlign: 'center',
+    },
+    previewGrid: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+      gap: 12,
+      marginBottom: 14,
+    },
+    oldBox: {
+      padding: 14,
+      borderRadius: 14,
+      background: 'rgba(239, 68, 68, 0.08)',
+      border: '1px solid rgba(239, 68, 68, 0.18)',
+      color: '#fecaca',
+      lineHeight: 1.5,
+    },
+    newBox: {
+      padding: 14,
+      borderRadius: 14,
+      background: 'rgba(34, 197, 94, 0.08)',
+      border: '1px solid rgba(34, 197, 94, 0.18)',
+      color: '#bbf7d0',
+      lineHeight: 1.5,
     },
   }
 
@@ -270,10 +503,229 @@ export default function AdminPsSettings({ session }) {
       )}
 
       <section style={styles.warningBox}>
-        Saat ini tampilan masih mode baca dulu. Perubahan PS nanti jangan langsung
-        update tabel utama, tapi harus lewat <strong>Setting Change Request</strong>,
-        approval, effective date, dan broker time window supaya invoice lama tidak
-        berubah.
+        Saat ini perubahan PS tidak langsung mengubah setting aktif. Semua perubahan
+        masuk ke <strong>Setting Change Request</strong>, dicatat di Timeline, dan
+        memakai effective date + broker time window.
+      </section>
+
+      <section style={styles.section}>
+        <h3 style={styles.sectionTitle}>Request Change PS Client</h3>
+        <p style={styles.sectionSub}>
+          Buat request perubahan PS. Ini hanya membuat jadwal perubahan, belum
+          langsung mengubah setting aktif client.
+        </p>
+
+        <div style={styles.previewGrid}>
+          <div style={styles.oldBox}>
+            <strong>Old</strong>
+            <div>
+              Client:{' '}
+              {getPartnerName(
+                partnerMap,
+                selectedClientSetting?.client_partner_id
+              )}
+            </div>
+            <div>
+              Tier:{' '}
+              {selectedCurrentTier
+                ? `${selectedCurrentTier.tier_code} — ${selectedCurrentTier.tier_name}`
+                : '-'}
+            </div>
+            <div>
+              Rate:{' '}
+              {selectedCurrentTier
+                ? formatPercent(selectedCurrentTier.ps_fee_rate)
+                : '-'}
+            </div>
+            <div>FX: {selectedClientSetting?.fx_mode || '-'}</div>
+          </div>
+
+          <div style={styles.newBox}>
+            <strong>New</strong>
+            <div>
+              Tier:{' '}
+              {selectedNewTier
+                ? `${selectedNewTier.tier_code} — ${selectedNewTier.tier_name}`
+                : '-'}
+            </div>
+            <div>
+              Rate:{' '}
+              {psFeeRateOverride
+                ? formatPercent(psFeeRateOverride)
+                : selectedNewTier
+                  ? formatPercent(selectedNewTier.ps_fee_rate)
+                  : '-'}
+            </div>
+            <div>FX: {fxMode}</div>
+            <div>Broker mulai: {effectiveFromBroker || '-'}</div>
+          </div>
+        </div>
+
+        {requestError && <div style={styles.error}>{requestError}</div>}
+        {requestSuccess && <div style={styles.success}>{requestSuccess}</div>}
+
+        <form onSubmit={handleSubmitChangeRequest}>
+          <div style={styles.formGrid}>
+            <label style={styles.inputLabel}>
+              Client Setting
+              <span style={styles.inputSub}>Pilih client yang akan diubah PS-nya.</span>
+              <select
+                style={styles.input}
+                value={selectedClientSettingId}
+                onChange={(event) => {
+                  const nextId = event.target.value
+                  const nextSetting = (data?.client_settings || []).find(
+                    (setting) => setting.id === nextId
+                  )
+
+                  setSelectedClientSettingId(nextId)
+                  setNewPsTierId(nextSetting?.ps_tier_id || '')
+                }}
+                disabled={requestLoading}
+              >
+                {(data?.client_settings || []).map((setting) => {
+                  const tier = tierMap[setting.ps_tier_id]
+
+                  return (
+                    <option key={setting.id} value={setting.id}>
+                      {getPartnerName(partnerMap, setting.client_partner_id)} —{' '}
+                      {tier?.tier_code || 'No Tier'}
+                    </option>
+                  )
+                })}
+              </select>
+            </label>
+
+            <label style={styles.inputLabel}>
+              New PS Tier
+              <span style={styles.inputSub}>Tier baru yang akan berlaku.</span>
+              <select
+                style={styles.input}
+                value={newPsTierId}
+                onChange={(event) => setNewPsTierId(event.target.value)}
+                disabled={requestLoading}
+              >
+                {(data?.tiers || []).map((tier) => (
+                  <option key={tier.id} value={tier.id}>
+                    {tier.tier_code} — {tier.tier_name} — {tier.ps_fee_rate}%
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label style={styles.inputLabel}>
+              Override Rate
+              <span style={styles.inputSub}>Kosongkan jika ikut rate tier.</span>
+              <input
+                style={styles.input}
+                type="number"
+                step="0.01"
+                value={psFeeRateOverride}
+                onChange={(event) => setPsFeeRateOverride(event.target.value)}
+                placeholder="Contoh: 35"
+                disabled={requestLoading}
+              />
+            </label>
+
+            <label style={styles.inputLabel}>
+              FX Mode
+              <span style={styles.inputSub}>Cara rate USD/IDR dikunci.</span>
+              <select
+                style={styles.input}
+                value={fxMode}
+                onChange={(event) => setFxMode(event.target.value)}
+                disabled={requestLoading}
+              >
+                <option value="MANUAL">MANUAL</option>
+                <option value="FIXED">FIXED</option>
+                <option value="FLOATING">FLOATING</option>
+              </select>
+            </label>
+
+            <label style={styles.inputLabel}>
+              Fixed FX Rate
+              <span style={styles.inputSub}>Isi kalau pakai fixed/manual rate tertentu.</span>
+              <input
+                style={styles.input}
+                type="number"
+                step="0.01"
+                value={fixedFxRate}
+                onChange={(event) => setFixedFxRate(event.target.value)}
+                placeholder="Contoh: 16250"
+                disabled={requestLoading}
+              />
+            </label>
+
+            <label style={styles.inputLabel}>
+              Effective GMT+7
+              <span style={styles.inputSub}>Jam sistem/admin. Default Senin 06:00.</span>
+              <input
+                style={styles.input}
+                type="datetime-local"
+                value={effectiveFromGmt7}
+                onChange={(event) => setEffectiveFromGmt7(event.target.value)}
+                disabled={requestLoading}
+              />
+            </label>
+
+            <label style={styles.inputLabel}>
+              Effective Broker Time
+              <span style={styles.inputSub}>Jam broker server. Default Senin 00:00.</span>
+              <input
+                style={styles.input}
+                type="datetime-local"
+                value={effectiveFromBroker}
+                onChange={(event) => setEffectiveFromBroker(event.target.value)}
+                disabled={requestLoading}
+              />
+            </label>
+
+            <label style={styles.inputLabel}>
+              Ticket Apply Rule
+              <span style={styles.inputSub}>Ticket mana yang pakai setting baru.</span>
+              <select
+                style={styles.input}
+                value={ticketApplyRule}
+                onChange={(event) => setTicketApplyRule(event.target.value)}
+                disabled={requestLoading}
+              >
+                <option value="CLOSE_TIME_BROKER_GTE_EFFECTIVE_FROM">
+                  Close time broker &gt;= effective broker time
+                </option>
+                <option value="OPEN_TIME_BROKER_GTE_EFFECTIVE_FROM">
+                  Open time broker &gt;= effective broker time
+                </option>
+                <option value="MANUAL_REVIEW_REQUIRED">
+                  Manual review required
+                </option>
+              </select>
+            </label>
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <label style={styles.inputLabel}>
+              Note
+              <span style={styles.inputSub}>Alasan perubahan untuk audit log.</span>
+              <textarea
+                style={styles.textarea}
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder="Contoh: Naik ke PS40 mulai minggu depan berdasarkan kesepakatan baru."
+                disabled={requestLoading}
+              />
+            </label>
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <button
+              type="submit"
+              style={styles.button}
+              disabled={requestLoading}
+            >
+              {requestLoading ? 'Membuat Request...' : 'Create Request Change'}
+            </button>
+          </div>
+        </form>
       </section>
 
       <section style={styles.section}>
@@ -421,8 +873,8 @@ export default function AdminPsSettings({ session }) {
       <section style={styles.section}>
         <h3 style={styles.sectionTitle}>Client PS Setting</h3>
         <p style={styles.sectionSub}>
-          Setting PS per client. Nanti bagian ini akan kita buat bisa request perubahan
-          rate, FX mode, dan effective broker time.
+          Setting PS per client. Perubahan jangan langsung edit data aktif, gunakan
+          form Request Change di atas.
         </p>
 
         <div style={styles.tableWrap}>
