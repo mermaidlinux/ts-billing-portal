@@ -4,6 +4,7 @@ import AdminNetwork from './AdminNetwork.jsx'
 import AdminActivityLogs from './AdminActivityLogs.jsx'
 import AdminShell from './AdminShell.jsx'
 import AdminPsSettings from './AdminPsSettings.jsx'
+import AdminPsRequests from './AdminPsRequests.jsx'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1267,6 +1268,10 @@ function AdminPage() {
         <AdminPsSettings session={session} />
       )}
 
+      {activeAdminMenu === 'ps_requests' && (
+        <AdminPsRequests session={session} />
+      )}
+      
       {activeAdminMenu === 'invoice' && (
         <section className="adminContainer">
           <header className="adminHeader">
