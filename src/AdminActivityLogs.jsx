@@ -22,6 +22,33 @@ function shortText(value, max = 80) {
   return value.slice(0, max) + '...'
 }
 
+function formatBrokerInfo(log) {
+  const brokerServer = log.broker_server || ''
+  const brokerTime = log.broker_time || ''
+  const brokerLabel = log.broker_time_label || ''
+  const brokerName = log.broker_name || ''
+
+  if (!brokerServer && !brokerTime && !brokerName) {
+    return '-'
+  }
+
+  const lines = []
+
+  if (brokerName) {
+    lines.push(brokerName)
+  }
+
+  if (brokerServer) {
+    lines.push(brokerServer)
+  }
+
+  if (brokerTime) {
+    lines.push(`${formatDate(brokerTime)} ${brokerLabel || ''}`.trim())
+  }
+
+  return lines.join(' | ')
+}
+
 export default function AdminActivityLogs({ session }) {
   const [logs, setLogs] = useState([])
   const [summary, setSummary] = useState(null)
@@ -362,6 +389,7 @@ export default function AdminActivityLogs({ session }) {
               <th style={styles.th}>Severity</th>
               <th style={styles.th}>Action</th>
               <th style={styles.th}>Target</th>
+              <th style={styles.th}>Broker</th>
               <th style={styles.th}>Actor</th>
               <th style={styles.th}>Old</th>
               <th style={styles.th}>New</th>
@@ -380,21 +408,27 @@ export default function AdminActivityLogs({ session }) {
                   <span style={styles.severity}>{log.severity}</span>
                 </td>
                 <td style={styles.td}>{log.action}</td>
-                <td style={styles.td}>{log.target_display_name || '-'}</td>
-                <td style={styles.td}>{log.actor_display_name || 'System'}</td>
-                <td style={styles.td}>
-                  <span style={styles.oldText}>
-                    {shortText(log.old_value_summary, 90)}
-                  </span>
-                </td>
-                
-                <td style={styles.td}>
-                  <span style={styles.newText}>
-                    {shortText(log.new_value_summary, 90)}
-                  </span>
-                </td>
-                
-                <td style={styles.td}>{shortText(log.message, 120)}</td>
+                  <td style={styles.td}>{log.target_display_name || '-'}</td>
+                  
+                  <td style={styles.td}>{log.actor_display_name || 'System'}</td>
+                  
+                  <td style={styles.td}>
+                    {shortText(formatBrokerInfo(log), 120)}
+                  </td>
+                  
+                  <td style={styles.td}>
+                    <span style={styles.oldText}>
+                      {shortText(log.old_value_summary, 100)}
+                    </span>
+                  </td>
+                  
+                  <td style={styles.td}>
+                    <span style={styles.newText}>
+                      {shortText(log.new_value_summary, 120)}
+                    </span>
+                  </td>
+                  
+                  <td style={styles.td}>{shortText(log.message, 120)}</td>
               </tr>
             ))}
 
