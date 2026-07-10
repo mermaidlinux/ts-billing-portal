@@ -1,102 +1,273 @@
-      <AdjustableTable
-        title="PS Tier Client"
-        subtitle="Tier ini menentukan berapa persen profit client yang menjadi PS fee."
-        storageKey="ts_ps_tier_table"
-        columns={psTierColumns}
-        rows={data?.tiers || []}
-        loading={loading}
-        emptyText="Belum ada PS tier."
-      />
+import { createClient } from '@supabase/supabase-js'
 
-      <section style={styles.section}>
-        <h3 style={styles.sectionTitle}>TS Share / Master Pool</h3>
+const supabaseUrl = process.env.VITE_SUPABASE_URL
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+const billingAdminEmail = process.env.BILLING_ADMIN_EMAIL
 
-        <p style={styles.sectionSub}>
-          PS fee client dibagi menjadi bagian TS dan Master Pool. Client net tidak
-          boleh berkurang di luar PS fee.
-        </p>
+function json(res, status, data) {
+  res.status(status).json(data)
+}
 
-        <div style={styles.grid}>
-          <div style={styles.card}>
-            <div style={styles.label}>TS Share</div>
-            <div style={styles.value}>
-              {formatPercent(activeSplit?.ts_share_rate)}
-            </div>
-          </div>
+function getBearerToken(req) {
+  const header = req.headers.authorization || ''
+  if (!header.startsWith('Bearer ')) return null
+  return header.slice('Bearer '.length)
+}
 
-          <div style={styles.card}>
-            <div style={styles.label}>Master Pool</div>
-            <div style={styles.value}>
-              {formatPercent(activeSplit?.master_pool_rate)}
-            </div>
-          </div>
+export default async function handler(req, res) {
+  try {
+    if (req.method !== 'GET') {
+      return json(res, 405, {
+        ok: false,
+        error: 'Method not allowed',
+      })
+    }
 
-          <div style={styles.card}>
-            <div style={styles.label}>Effective From</div>
-            <div style={{ color: '#f8fafc', fontWeight: 800 }}>
-              {formatDate(activeSplit?.effective_from)}
-            </div>
-          </div>
-        </div>
-      </section>
+    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
+      return json(res, 500, {
+        ok: false,
+        error: 'Missing Supabase environment variables',
+      })
+    }
 
-      <AdjustableTable
-        title="Distribution Weight"
-        subtitle="Bobot ini membagi Master Pool ke upline. Angka 4 / 2.5 / 1.5 / 1 / 0.5 adalah bobot pool, bukan potongan tambahan dari profit client."
-        storageKey="ts_distribution_weight_table"
-        columns={distributionColumns}
-        rows={data?.distribution_items || []}
-        loading={loading}
-        emptyText="Belum ada distribution item."
-      />
+    const token = getBearerToken(req)
 
-      <section style={styles.section}>
-        <h3 style={styles.sectionTitle}>Distribution Rule</h3>
+    if (!token) {
+      return json(res, 401, {
+        ok: false,
+        error: 'Missing authorization token',
+      })
+    }
 
-        <p style={styles.sectionSub}>
-          Rule aktif yang dipakai untuk menghitung pembagian Master Pool.
-        </p>
+    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    })
 
-        <div style={styles.grid}>
-          <div style={styles.card}>
-            <div style={styles.label}>Rule Name</div>
-            <div style={{ color: '#f8fafc', fontWeight: 900 }}>
-              {activeRule?.rule_name || '-'}
-            </div>
-          </div>
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey)
 
-          <div style={styles.card}>
-            <div style={styles.label}>Rule Code</div>
-            <div style={{ color: '#f8fafc', fontWeight: 900 }}>
-              {activeRule?.rule_code || '-'}
-            </div>
-          </div>
+    const { data: userData, error: userError } =
+      await userClient.auth.getUser(token)
 
-          <div style={styles.card}>
-            <div style={styles.label}>Status</div>
-            <div style={{ color: '#f8fafc', fontWeight: 900 }}>
-              {activeRule?.is_active ? 'Aktif' : 'Nonaktif'}
-            </div>
-          </div>
-        </div>
-      </section>
+    if (userError || !userData?.user) {
+      return json(res, 401, {
+        ok: false,
+        error: 'Invalid session',
+      })
+    }
 
-      <AdjustableTable
-        title="Client PS Setting"
-        subtitle="Setting PS per client. Perubahan jangan langsung edit data aktif, gunakan form Request Change di atas."
-        storageKey="ts_client_ps_setting_table"
-        columns={clientSettingColumns}
-        rows={data?.client_settings || []}
-        loading={loading}
-        emptyText="Belum ada client PS setting."
-      />
+    const user = userData.user
+    const userEmail = user.email || ''
 
-      <AdjustableTable
-        title="FX Snapshot"
-        subtitle="Snapshot rate USD/IDR untuk penguncian nilai invoice. Sekarang masih kosong, nanti terisi saat calculation/invoice PS berjalan."
-        storageKey="ts_fx_snapshot_table"
-        columns={fxColumns}
-        rows={data?.fx_snapshots || []}
-        loading={loading}
-        emptyText="Belum ada FX snapshot."
-      />
+    const { data: partnerProfile, error: partnerError } =
+      await adminClient
+        .from('ts_partner_profiles')
+        .select('id, role, display_name, auth_user_id, status')
+        .eq('auth_user_id', user.id)
+        .maybeSingle()
+
+    if (partnerError) {
+      return json(res, 500, {
+        ok: false,
+        error: partnerError.message,
+      })
+    }
+
+    const isAdminEmail =
+      billingAdminEmail &&
+      userEmail.toLowerCase() === billingAdminEmail.toLowerCase()
+
+    const isAdminPartner =
+      partnerProfile &&
+      partnerProfile.role === 'admin' &&
+      partnerProfile.status === 'active'
+
+    if (!isAdminEmail && !isAdminPartner) {
+      return json(res, 403, {
+        ok: false,
+        error: 'Admin access required',
+      })
+    }
+
+    const limitRaw = Number(req.query.limit || 100)
+    const limit = Number.isFinite(limitRaw)
+      ? Math.min(Math.max(limitRaw, 1), 300)
+      : 100
+
+    const status = req.query.status || 'ALL'
+    const search = req.query.search || ''
+
+    let requestQuery = adminClient
+      .from('ts_setting_change_requests')
+      .select('*')
+      .eq('setting_scope', 'CLIENT_PS_SETTING')
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (status && status !== 'ALL') {
+      requestQuery = requestQuery.eq('approval_status', status)
+    }
+
+    if (search) {
+      requestQuery = requestQuery.or(
+        [
+          `request_code.ilike.%${search}%`,
+          `target_display_name.ilike.%${search}%`,
+          `old_value_summary.ilike.%${search}%`,
+          `new_value_summary.ilike.%${search}%`,
+          `note.ilike.%${search}%`,
+        ].join(',')
+      )
+    }
+
+    const { data: requests, error: requestsError } = await requestQuery
+
+    if (requestsError) {
+      return json(res, 500, {
+        ok: false,
+        error: requestsError.message,
+      })
+    }
+
+    const requestIds = (requests || []).map((item) => item.id)
+
+    let windows = []
+    let boundaries = []
+
+    if (requestIds.length > 0) {
+      const { data: windowRows, error: windowError } =
+        await adminClient
+          .from('ts_setting_change_broker_windows')
+          .select('*')
+          .in('setting_change_id', requestIds)
+          .order('created_at', { ascending: true })
+
+      if (windowError) {
+        return json(res, 500, {
+          ok: false,
+          error: windowError.message,
+        })
+      }
+
+      windows = windowRows || []
+
+      const { data: boundaryRows, error: boundaryError } =
+        await adminClient
+          .from('ts_ps_change_boundary_timeline_view')
+          .select('*')
+          .in('setting_change_id', requestIds)
+          .order('created_at', { ascending: true })
+
+      if (boundaryError) {
+        return json(res, 500, {
+          ok: false,
+          error: boundaryError.message,
+        })
+      }
+
+      boundaries = boundaryRows || []
+    }
+
+    const windowMap = {}
+    const boundaryMap = {}
+
+    for (const windowRow of windows) {
+      const key = windowRow.setting_change_id
+      if (!windowMap[key]) windowMap[key] = []
+      windowMap[key].push(windowRow)
+    }
+
+    for (const boundary of boundaries) {
+      const key = boundary.setting_change_id
+      if (!boundaryMap[key]) boundaryMap[key] = []
+      boundaryMap[key].push(boundary)
+    }
+
+    const enrichedRequests = (requests || []).map((request) => {
+      const requestWindows = windowMap[request.id] || []
+      const requestBoundaries = boundaryMap[request.id] || []
+
+      const brokerSummary = requestWindows
+        .map((item) => {
+          return [
+            item.broker_server || item.broker_name || 'Broker',
+            item.account_number || '-',
+            item.effective_from_broker || '-',
+            item.applies_to_ticket_rule || '-',
+          ].join(' | ')
+        })
+        .join('\n')
+
+      const boundarySummary = requestBoundaries
+        .map((item) => {
+          return [
+            item.old_boundary_summary || '-',
+            item.new_boundary_summary || '-',
+          ].join('\n')
+        })
+        .join('\n\n')
+
+      return {
+        ...request,
+        broker_windows: requestWindows,
+        boundary_snapshots: requestBoundaries,
+        broker_summary: brokerSummary || '-',
+        boundary_summary: boundarySummary || '-',
+        broker_window_count_actual: requestWindows.length,
+        boundary_count_actual: requestBoundaries.length,
+      }
+    })
+
+    const { data: allCounts, error: countError } =
+      await adminClient
+        .from('ts_setting_change_requests')
+        .select('approval_status')
+        .eq('setting_scope', 'CLIENT_PS_SETTING')
+
+    if (countError) {
+      return json(res, 500, {
+        ok: false,
+        error: countError.message,
+      })
+    }
+
+    const summary = {
+      total: allCounts?.length || 0,
+      by_status: {},
+    }
+
+    for (const item of allCounts || []) {
+      const key = item.approval_status || 'unknown'
+      summary.by_status[key] = (summary.by_status[key] || 0) + 1
+    }
+
+    return json(res, 200, {
+      ok: true,
+      user: {
+        id: user.id,
+        email: userEmail,
+      },
+      admin: {
+        partner_id: partnerProfile?.id || null,
+        display_name: partnerProfile?.display_name || null,
+        role: partnerProfile?.role || null,
+      },
+      filters: {
+        limit,
+        status,
+        search,
+      },
+      summary,
+      requests: enrichedRequests,
+    })
+  } catch (error) {
+    return json(res, 500, {
+      ok: false,
+      error: error.message || 'Unexpected error',
+    })
+  }
+}
