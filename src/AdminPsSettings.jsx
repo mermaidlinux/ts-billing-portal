@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import AdjustableTable from './AdjustableTable.jsx'
 
 function formatPercent(value) {
   if (value === null || value === undefined || value === '') return '-'
@@ -518,6 +519,155 @@ export default function AdminPsSettings({ session }) {
     },
   }
 
+  const psTierColumns = [
+    {
+      key: 'tier_code',
+      label: 'Kode',
+      width: 120,
+      render: (tier) => (
+        <span style={styles.badge}>{tier.tier_code}</span>
+      ),
+    },
+    {
+      key: 'tier_name',
+      label: 'Nama',
+      width: 180,
+    },
+    {
+      key: 'ps_fee_rate',
+      label: 'Rate',
+      width: 120,
+      render: (tier) => formatPercent(tier.ps_fee_rate),
+    },
+    {
+      key: 'is_active',
+      label: 'Status',
+      width: 120,
+      render: (tier) =>
+        tier.is_active ? 'Aktif' : 'Nonaktif',
+    },
+    {
+      key: 'description',
+      label: 'Deskripsi',
+      width: 420,
+      render: (tier) => tier.description || '-',
+    },
+  ]
+
+  const distributionColumns = [
+    {
+      key: 'upline_level',
+      label: 'Level Upline',
+      width: 150,
+      render: (item) => `Level ${item.upline_level}`,
+    },
+    {
+      key: 'weight_value',
+      label: 'Weight',
+      width: 120,
+      render: (item) => <strong>{item.weight_value}</strong>,
+    },
+    {
+      key: 'fixed_amount_idr',
+      label: 'Fixed Amount',
+      width: 160,
+      render: (item) => formatMoney(item.fixed_amount_idr),
+    },
+    {
+      key: 'note',
+      label: 'Note',
+      width: 520,
+      render: (item) => item.note || '-',
+    },
+  ]
+
+  const clientSettingColumns = [
+    {
+      key: 'client_partner_id',
+      label: 'Client',
+      width: 240,
+      render: (setting) =>
+        getPartnerName(partnerMap, setting.client_partner_id),
+    },
+    {
+      key: 'ps_tier_id',
+      label: 'Tier',
+      width: 220,
+      render: (setting) => {
+        const tier = tierMap[setting.ps_tier_id]
+
+        return tier
+          ? `${tier.tier_code} — ${tier.tier_name}`
+          : '-'
+      },
+    },
+    {
+      key: 'ps_fee_rate_override',
+      label: 'Override Rate',
+      width: 170,
+      render: (setting) =>
+        setting.ps_fee_rate_override === null ||
+        setting.ps_fee_rate_override === undefined
+          ? '-'
+          : formatPercent(setting.ps_fee_rate_override),
+    },
+    {
+      key: 'fx_mode',
+      label: 'FX Mode',
+      width: 140,
+      render: (setting) => setting.fx_mode || '-',
+    },
+    {
+      key: 'fixed_fx_rate',
+      label: 'Fixed FX',
+      width: 160,
+      render: (setting) =>
+        setting.fixed_fx_rate
+          ? Number(setting.fixed_fx_rate).toLocaleString('id-ID')
+          : '-',
+    },
+    {
+      key: 'effective_from',
+      label: 'Effective From',
+      width: 200,
+      render: (setting) => formatDate(setting.effective_from),
+    },
+  ]
+
+  const fxColumns = [
+    {
+      key: 'source',
+      label: 'Source',
+      width: 180,
+      render: (fx) => fx.source || '-',
+    },
+    {
+      key: 'base_currency',
+      label: 'Base',
+      width: 120,
+      render: (fx) => fx.base_currency || '-',
+    },
+    {
+      key: 'quote_currency',
+      label: 'Quote',
+      width: 120,
+      render: (fx) => fx.quote_currency || '-',
+    },
+    {
+      key: 'rate',
+      label: 'Rate',
+      width: 180,
+      render: (fx) =>
+        Number(fx.rate || 0).toLocaleString('id-ID'),
+    },
+    {
+      key: 'source_date',
+      label: 'Source Date',
+      width: 220,
+      render: (fx) => formatDate(fx.source_date),
+    },
+  ]
+  
   return (
     <div style={styles.wrap}>
       <section style={styles.header}>
@@ -838,48 +988,15 @@ export default function AdminPsSettings({ session }) {
         </form>
       </section>
 
-      <section style={styles.section}>
-        <h3 style={styles.sectionTitle}>PS Tier Client</h3>
-        <p style={styles.sectionSub}>
-          Tier ini menentukan berapa persen profit client yang menjadi PS fee.
-        </p>
-
-        <div style={styles.tableWrap}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Kode</th>
-                <th style={styles.th}>Nama</th>
-                <th style={styles.th}>Rate</th>
-                <th style={styles.th}>Status</th>
-                <th style={styles.th}>Deskripsi</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {(data?.tiers || []).map((tier) => (
-                <tr key={tier.id}>
-                  <td style={styles.td}>
-                    <span style={styles.badge}>{tier.tier_code}</span>
-                  </td>
-                  <td style={styles.td}>{tier.tier_name}</td>
-                  <td style={styles.td}>{formatPercent(tier.ps_fee_rate)}</td>
-                  <td style={styles.td}>{tier.is_active ? 'Aktif' : 'Nonaktif'}</td>
-                  <td style={styles.td}>{tier.description || '-'}</td>
-                </tr>
-              ))}
-
-              {!loading && (data?.tiers || []).length === 0 && (
-                <tr>
-                  <td style={styles.empty} colSpan={5}>
-                    Belum ada PS tier.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <AdjustableTable
+        title="PS Tier Client"
+        subtitle="Tier ini menentukan berapa persen profit client yang menjadi PS fee."
+        storageKey="ts_ps_tier_table"
+        columns={psTierColumns}
+        rows={data?.tiers || []}
+        loading={loading}
+        emptyText="Belum ada PS tier."
+      />
 
       <section style={styles.section}>
         <h3 style={styles.sectionTitle}>TS Share / Master Pool</h3>
@@ -908,12 +1025,15 @@ export default function AdminPsSettings({ session }) {
         </div>
       </section>
 
-      <section style={styles.section}>
-        <h3 style={styles.sectionTitle}>Distribution Weight</h3>
-        <p style={styles.sectionSub}>
-          Bobot ini membagi Master Pool ke upline. Angka 4 / 2.5 / 1.5 / 1 / 0.5
-          adalah bobot pool, bukan potongan tambahan dari profit client.
-        </p>
+      <AdjustableTable
+        title="Distribution Weight"
+        subtitle="Bobot ini membagi Master Pool ke upline. Angka 4 / 2.5 / 1.5 / 1 / 0.5 adalah bobot pool, bukan potongan tambahan dari profit client."
+        storageKey="ts_distribution_weight_table"
+        columns={distributionColumns}
+        rows={data?.distribution_items || []}
+        loading={loading}
+        emptyText="Belum ada distribution item."
+      />
 
         <div style={styles.tableWrap}>
           <table style={styles.table}>
@@ -980,12 +1100,15 @@ export default function AdminPsSettings({ session }) {
         </div>
       </section>
 
-      <section style={styles.section}>
-        <h3 style={styles.sectionTitle}>Client PS Setting</h3>
-        <p style={styles.sectionSub}>
-          Setting PS per client. Perubahan jangan langsung edit data aktif, gunakan
-          form Request Change di atas.
-        </p>
+      <AdjustableTable
+        title="Client PS Setting"
+        subtitle="Setting PS per client. Perubahan jangan langsung edit data aktif, gunakan form Request Change di atas."
+        storageKey="ts_client_ps_setting_table"
+        columns={clientSettingColumns}
+        rows={data?.client_settings || []}
+        loading={loading}
+        emptyText="Belum ada client PS setting."
+      />
 
         <div style={styles.tableWrap}>
           <table style={styles.table}>
@@ -1041,12 +1164,15 @@ export default function AdminPsSettings({ session }) {
         </div>
       </section>
 
-      <section style={styles.section}>
-        <h3 style={styles.sectionTitle}>FX Snapshot</h3>
-        <p style={styles.sectionSub}>
-          Snapshot rate USD/IDR untuk penguncian nilai invoice. Sekarang masih kosong,
-          nanti terisi saat calculation/invoice PS berjalan.
-        </p>
+      <AdjustableTable
+        title="FX Snapshot"
+        subtitle="Snapshot rate USD/IDR untuk penguncian nilai invoice. Sekarang masih kosong, nanti terisi saat calculation/invoice PS berjalan."
+        storageKey="ts_fx_snapshot_table"
+        columns={fxColumns}
+        rows={data?.fx_snapshots || []}
+        loading={loading}
+        emptyText="Belum ada FX snapshot."
+      />
 
         <div style={styles.tableWrap}>
           <table style={styles.table}>
