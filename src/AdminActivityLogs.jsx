@@ -363,7 +363,8 @@ export default function AdminActivityLogs({ session }) {
               <th style={styles.th}>Action</th>
               <th style={styles.th}>Target</th>
               <th style={styles.th}>Actor</th>
-              <th style={styles.th}>Perubahan</th>
+              <th style={styles.th}>Old</th>
+              <th style={styles.th}>New</th>
               <th style={styles.th}>Pesan</th>
             </tr>
           </thead>
@@ -382,18 +383,24 @@ export default function AdminActivityLogs({ session }) {
                 <td style={styles.td}>{log.target_display_name || '-'}</td>
                 <td style={styles.td}>{log.actor_display_name || 'System'}</td>
                 <td style={styles.td}>
-                  <div style={styles.changeBox}>
-                    <div style={styles.oldText}>Old: {shortText(log.old_value_summary, 70)}</div>
-                    <div style={styles.newText}>New: {shortText(log.new_value_summary, 70)}</div>
-                  </div>
+                  <span style={styles.oldText}>
+                    {shortText(log.old_value_summary, 90)}
+                  </span>
                 </td>
+                
+                <td style={styles.td}>
+                  <span style={styles.newText}>
+                    {shortText(log.new_value_summary, 90)}
+                  </span>
+                </td>
+                
                 <td style={styles.td}>{shortText(log.message, 120)}</td>
               </tr>
             ))}
 
             {!loading && logs.length === 0 && (
               <tr>
-                <td style={styles.empty} colSpan={8}>
+                <td style={styles.empty} colSpan={9}>
                   Belum ada activity log.
                 </td>
               </tr>
@@ -401,7 +408,7 @@ export default function AdminActivityLogs({ session }) {
 
             {loading && (
               <tr>
-                <td style={styles.empty} colSpan={8}>
+                <td style={styles.empty} colSpan={9}>
                   Mengambil activity logs...
                 </td>
               </tr>
