@@ -71,6 +71,69 @@ function emptyToNull(value) {
   return value
 }
 
+function InfoTip({ text }) {
+  const [open, setOpen] = useState(false)
+
+  const wrapStyle = {
+    position: 'relative',
+    display: 'inline-flex',
+    marginLeft: 6,
+    verticalAlign: 'middle',
+  }
+
+  const iconStyle = {
+    width: 17,
+    height: 17,
+    borderRadius: 999,
+    border: '1px solid rgba(251, 191, 36, 0.55)',
+    background: 'rgba(251, 191, 36, 0.14)',
+    color: '#fbbf24',
+    fontSize: 11,
+    fontWeight: 900,
+    alignItems: 'center',
+    justifyContent: 'center',
+    display: 'inline-flex',
+    cursor: 'help',
+  }
+
+  const boxStyle = {
+    position: 'absolute',
+    left: 24,
+    top: -8,
+    zIndex: 999,
+    width: 320,
+    padding: 12,
+    borderRadius: 12,
+    background: 'rgba(2, 6, 23, 0.98)',
+    border: '1px solid rgba(251, 191, 36, 0.35)',
+    color: '#fde68a',
+    fontSize: 12,
+    lineHeight: 1.55,
+    boxShadow: '0 18px 40px rgba(0,0,0,0.45)',
+    whiteSpace: 'pre-line',
+  }
+
+  return (
+    <span
+      style={wrapStyle}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+    >
+      <span style={iconStyle} tabIndex={0}>
+        !
+      </span>
+
+      {open && (
+        <span style={boxStyle}>
+          {text}
+        </span>
+      )}
+    </span>
+  )
+}
+
 export default function AdminPsSettings({ session }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -682,7 +745,23 @@ export default function AdminPsSettings({ session }) {
 
             <label style={styles.inputLabel}>
               Ticket Apply Rule
-              <span style={styles.inputSub}>Ticket mana yang pakai setting baru.</span>
+              <InfoTip
+                text={`Rule ini menentukan ticket mana yang memakai PS baru.
+            
+            NEXT PERIOD / SELECTED DATE:
+            Paling aman pakai close time broker.
+            Ticket yang close setelah waktu berlaku akan pakai setting baru.
+            
+            IMMEDIATE / berlaku segera:
+            Lebih fair pakai open time broker.
+            Order yang sudah berjalan sebelum perubahan tetap pakai setting lama.
+            
+            Pending order:
+            Kalau pending dibuat sebelum perubahan tapi baru trigger setelah effective time, biasanya dianggap order baru dan bisa masuk setting baru.`}
+              />
+              <span style={styles.inputSub}>
+                Ticket mana yang pakai setting baru.
+              </span>
               <select
                 style={styles.input}
                 value={ticketApplyRule}
@@ -702,6 +781,37 @@ export default function AdminPsSettings({ session }) {
             </label>
           </div>
 
+          <div
+            style={{
+              marginTop: 8,
+              padding: 10,
+              borderRadius: 10,
+              background: 'rgba(15, 23, 42, 0.72)',
+              border: '1px solid rgba(148, 163, 184, 0.14)',
+              color: '#94a3b8',
+              fontSize: 12,
+              lineHeight: 1.5,
+            }}
+          >
+            {ticketApplyRule === 'CLOSE_TIME_BROKER_GTE_EFFECTIVE_FROM' && (
+              <span>
+                Setting baru berlaku untuk ticket yang <strong>close</strong> setelah effective broker time. Ini cocok untuk perubahan minggu depan/periode baru.
+              </span>
+            )}
+          
+            {ticketApplyRule === 'OPEN_TIME_BROKER_GTE_EFFECTIVE_FROM' && (
+              <span>
+                Setting baru berlaku untuk order yang <strong>open</strong> setelah effective broker time. Ini cocok untuk perubahan segera agar posisi yang sudah running tetap pakai setting lama.
+              </span>
+            )}
+          
+            {ticketApplyRule === 'MANUAL_REVIEW_REQUIRED' && (
+              <span>
+                Ticket tidak otomatis diputuskan oleh sistem. Admin harus review manual jika ada kondisi abu-abu.
+              </span>
+            )}
+          </div>
+          
           <div style={{ marginTop: 12 }}>
             <label style={styles.inputLabel}>
               Note
