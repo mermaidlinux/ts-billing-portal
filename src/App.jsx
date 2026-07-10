@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import AdminNetwork from './AdminNetwork.jsx'
 import AdminActivityLogs from './AdminActivityLogs.jsx'
+import AdminShell from './AdminShell.jsx'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -756,6 +757,8 @@ function AdminPage() {
   const [loginError, setLoginError] =
     useState('')
 
+  const [activeAdminMenu, setActiveAdminMenu] = useState('home')
+  
   const [payments, setPayments] =
     useState([])
 
