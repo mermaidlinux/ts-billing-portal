@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import AdminNetwork from './AdminNetwork.jsx'
 import AdminActivityLogs from './AdminActivityLogs.jsx'
 import AdminShell from './AdminShell.jsx'
+import AdminPsSettings from './AdminPsSettings.jsx'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1263,19 +1264,7 @@ function AdminPage() {
       )}
 
       {activeAdminMenu === 'settings' && (
-        <section className="adminContainer">
-          <div className="adminSummary">
-            <div>
-              <span>Setting</span>
-              <strong>PS</strong>
-            </div>
-
-            <p>
-              Menu setting PS, fee, split, broker time,
-              dan rule akan kita isi di step berikutnya.
-            </p>
-          </div>
-        </section>
+        <AdminPsSettings session={session} />
       )}
 
       {activeAdminMenu === 'invoice' && (
