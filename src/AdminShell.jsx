@@ -121,17 +121,23 @@ export default function AdminShell({
       gap: 12,
     },
     brandMark: {
-      width: 40,
-      height: 40,
+      width: 46,
+      height: 46,
       borderRadius: 14,
-      background:
-        'linear-gradient(135deg, rgba(251, 191, 36, 0.95), rgba(20, 184, 166, 0.72))',
+      background: 'rgba(15, 23, 42, 0.9)',
+      border: '1px solid rgba(251, 191, 36, 0.35)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      color: '#020617',
-      fontWeight: 900,
+      overflow: 'hidden',
       flexShrink: 0,
+    },
+    brandLogo: {
+      width: '100%',
+      height: '100%',
+      objectFit: 'contain',
+      padding: 5,
+      boxSizing: 'border-box',
     },
     brandText: {
       minWidth: 0,
@@ -287,7 +293,13 @@ export default function AdminShell({
       <aside style={styles.sidebar}>
         <div style={styles.sidebarTop}>
           <div style={styles.brandRow}>
-            <div style={styles.brandMark}>TS</div>
+            <div style={styles.brandMark}>
+              <img
+                src="/logo-ternaksukses.png"
+                alt="TERNAKSUKSES"
+                style={styles.brandLogo}
+              />
+            </div>
 
             <div style={styles.brandText}>
               <h1 style={styles.brandTitle}>TERNAKSUKSES</h1>
