@@ -131,25 +131,49 @@ export default async function handler(req, res) {
     if (!isAdminEmail && !isAdminPartner) {
       return json(res, 403, {
         ok: false,
-        error: 'Admin TS only. Approve/Reject PS Request masih dikunci untuk Admin TS.',
+        error:
+          'Admin TS only. Approve/Reject PS Request masih dikunci untuk Admin TS.',
       })
     }
 
-    const { data: permission } =
-      await adminClient
-        .from('ts_partner_permissions')
-        .select('can_approve_ps_change, can_reject_ps_change')
-        .eq('partner_id', partnerProfile?.id || '00000000-0000-0000-0000-000000000000')
-        .maybeSingle()
+    let permission = null
 
-    if (action === 'approve' && partnerProfile && permission?.can_approve_ps_change === false) {
+    if (partnerProfile?.id) {
+      const { data: permissionData, error: permissionError } =
+        await adminClient
+          .from('ts_partner_permissions')
+          .select('can_approve_ps_change, can_reject_ps_change')
+          .eq('partner_id', partnerProfile.id)
+          .maybeSingle()
+
+      if (permissionError) {
+        return json(res, 500, {
+          ok: false,
+          error: permissionError.message,
+        })
+      }
+
+      permission = permissionData
+    }
+
+    if (
+      action === 'approve' &&
+      partnerProfile &&
+      permission &&
+      permission.can_approve_ps_change === false
+    ) {
       return json(res, 403, {
         ok: false,
         error: 'Permission approve PS change belum aktif untuk user ini.',
       })
     }
 
-    if (action === 'reject' && partnerProfile && permission?.can_reject_ps_change === false) {
+    if (
+      action === 'reject' &&
+      partnerProfile &&
+      permission &&
+      permission.can_reject_ps_change === false
+    ) {
       return json(res, 403, {
         ok: false,
         error: 'Permission reject PS change belum aktif untuk user ini.',
@@ -180,7 +204,15 @@ export default async function handler(req, res) {
 
     const currentStatus = request.approval_status
 
-    if (['approved', 'rejected', 'active', 'cancelled'].includes(currentStatus)) {
+    const lockedStatuses = [
+      'approved',
+      'rejected',
+      'active',
+      'cancelled',
+      'superseded',
+    ]
+
+    if (lockedStatuses.includes(currentStatus)) {
       return json(res, 400, {
         ok: false,
         error: `Request sudah berstatus ${currentStatus}, tidak bisa diproses ulang.`,
@@ -190,6 +222,7 @@ export default async function handler(req, res) {
     const nowIso = new Date().toISOString()
 
     let updatedRequest = null
+    let brokerWindowWarning = null
 
     if (action === 'approve') {
       const { data, error } =
@@ -197,10 +230,17 @@ export default async function handler(req, res) {
           .from('ts_setting_change_requests')
           .update({
             approval_status: 'approved',
+
             approved_by_user_id: user.id,
             approved_by_partner_id: partnerProfile?.id || null,
             approved_at: nowIso,
             approval_note: note || 'Approved by Admin TS.',
+
+            rejected_by_user_id: null,
+            rejected_by_partner_id: null,
+            rejected_at: null,
+            rejection_reason: null,
+
             updated_by: user.id,
           })
           .eq('id', request.id)
@@ -216,14 +256,23 @@ export default async function handler(req, res) {
 
       updatedRequest = data
 
-      await adminClient
-        .from('ts_setting_change_broker_windows')
-        .update({
-          status: 'approved',
-          updated_by: user.id,
-        })
-        .eq('setting_change_id', request.id)
-        .in('status', ['draft', 'waiting_approval', 'scheduled'])
+      const { error: windowError } =
+        await adminClient
+          .from('ts_setting_change_broker_windows')
+          .update({
+            status: 'approved',
+          })
+          .eq('setting_change_id', request.id)
+          .in('status', [
+            'draft',
+            'pending_review',
+            'waiting_approval',
+            'scheduled',
+          ])
+
+      if (windowError) {
+        brokerWindowWarning = windowError.message
+      }
     }
 
     if (action === 'reject') {
@@ -232,10 +281,17 @@ export default async function handler(req, res) {
           .from('ts_setting_change_requests')
           .update({
             approval_status: 'rejected',
+
             rejected_by_user_id: user.id,
             rejected_by_partner_id: partnerProfile?.id || null,
             rejected_at: nowIso,
             rejection_reason: rejectionReason.trim(),
+
+            approved_by_user_id: null,
+            approved_by_partner_id: null,
+            approved_at: null,
+            approval_note: null,
+
             updated_by: user.id,
           })
           .eq('id', request.id)
@@ -251,14 +307,24 @@ export default async function handler(req, res) {
 
       updatedRequest = data
 
-      await adminClient
-        .from('ts_setting_change_broker_windows')
-        .update({
-          status: 'cancelled',
-          updated_by: user.id,
-        })
-        .eq('setting_change_id', request.id)
-        .in('status', ['draft', 'waiting_approval', 'scheduled', 'approved'])
+      const { error: windowError } =
+        await adminClient
+          .from('ts_setting_change_broker_windows')
+          .update({
+            status: 'cancelled',
+          })
+          .eq('setting_change_id', request.id)
+          .in('status', [
+            'draft',
+            'pending_review',
+            'waiting_approval',
+            'scheduled',
+            'approved',
+          ])
+
+      if (windowError) {
+        brokerWindowWarning = windowError.message
+      }
     }
 
     const activityAction =
@@ -276,59 +342,76 @@ export default async function handler(req, res) {
         ? 'success'
         : 'warning'
 
+    const reviewNote =
+      action === 'approve'
+        ? note || 'Approved by Admin TS.'
+        : rejectionReason.trim()
+
     const activityMessage =
       action === 'approve'
         ? `Request perubahan PS ${request.request_code} disetujui oleh Admin TS.`
         : `Request perubahan PS ${request.request_code} ditolak oleh Admin TS.`
 
-    await adminClient
-      .from('ts_activity_logs')
-      .insert({
-        activity_key: `PS_REQUEST_REVIEW:${request.id}:${action}:${Date.now()}`,
-        activity_type: 'PS_REQUEST',
-        severity: activitySeverity,
+    const { error: activityError } =
+      await adminClient
+        .from('ts_activity_logs')
+        .insert({
+          activity_key: `PS_REQUEST_REVIEW:${request.id}:${action}:${Date.now()}`,
+          activity_type: 'PS_REQUEST',
+          severity: activitySeverity,
 
-        actor_user_id: user.id,
-        actor_partner_id: partnerProfile?.id || null,
-        actor_display_name:
-          partnerProfile?.display_name || userEmail || 'Admin',
-        actor_role: partnerProfile?.role || 'admin',
+          actor_user_id: user.id,
+          actor_partner_id: partnerProfile?.id || null,
+          actor_display_name:
+            partnerProfile?.display_name || userEmail || 'Admin',
+          actor_role: partnerProfile?.role || 'admin',
 
-        target_entity_type: 'setting_change_request',
-        target_entity_id: request.id,
-        target_partner_id: request.target_partner_id || null,
-        target_display_name: request.target_display_name || null,
+          target_entity_type: 'setting_change_request',
+          target_entity_id: request.id,
+          target_partner_id: request.target_partner_id || null,
+          target_display_name: request.target_display_name || null,
 
-        action: activityAction,
-        title: activityTitle,
-        message: activityMessage,
+          action: activityAction,
+          title: activityTitle,
+          message: activityMessage,
 
-        old_value_summary: request.old_value_summary,
-        new_value_summary: request.new_value_summary,
-        old_data: request.old_data,
-        new_data: {
-          ...(request.new_data || {}),
-          review_action: action,
-          review_note: action === 'approve' ? note : rejectionReason,
-          reviewed_at: nowIso,
-          reviewed_by_user_id: user.id,
-          reviewed_by_partner_id: partnerProfile?.id || null,
-        },
+          old_value_summary: request.old_value_summary,
+          new_value_summary: request.new_value_summary,
+          old_data: request.old_data,
+          new_data: {
+            ...(request.new_data || {}),
+            review_action: action,
+            review_note: reviewNote,
+            reviewed_at: nowIso,
+            reviewed_by_user_id: user.id,
+            reviewed_by_partner_id: partnerProfile?.id || null,
+            broker_window_warning: brokerWindowWarning,
+          },
 
-        approval_status: updatedRequest.approval_status,
-        gmt7_time: nowIso,
-        metadata: {
-          source: 'admin-review-ps-request',
-          request_id: request.id,
-          request_code: request.request_code,
-          review_action: action,
-        },
+          approval_status: updatedRequest.approval_status,
+          gmt7_time: nowIso,
+
+          metadata: {
+            source: 'admin-review-ps-request',
+            request_id: request.id,
+            request_code: request.request_code,
+            review_action: action,
+            broker_window_warning: brokerWindowWarning,
+          },
+        })
+
+    if (activityError) {
+      return json(res, 500, {
+        ok: false,
+        error: activityError.message,
       })
+    }
 
     return json(res, 200, {
       ok: true,
       action,
       request: updatedRequest,
+      broker_window_warning: brokerWindowWarning,
       message:
         action === 'approve'
           ? 'PS Request berhasil di-approve.'
