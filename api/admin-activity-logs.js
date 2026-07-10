@@ -124,6 +124,11 @@ export default async function handler(req, res) {
         old_value_summary,
         new_value_summary,
         approval_status,
+        broker_account_id,
+        broker_name,
+        broker_server,
+        broker_time,
+        broker_time_label,
         metadata
       `)
       .order('created_at', { ascending: false })
