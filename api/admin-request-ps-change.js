@@ -409,6 +409,21 @@ export default async function handler(req, res) {
         .eq('id', request.id)
     }
 
+    const { data: boundaryCount, error: boundaryError } =
+      await adminClient.rpc('ts_create_ps_change_boundary_snapshots', {
+        p_setting_change_id: request.id,
+        p_actor_user_id: user.id,
+      })
+
+    if (boundaryError) {
+      brokerWindowErrors.push({
+        account_id: null,
+        broker_server: 'BOUNDARY_LOG',
+        account_number: '-',
+        error: boundaryError.message,
+      })
+    }
+    
     await adminClient
       .from('ts_activity_logs')
       .insert({
@@ -457,6 +472,7 @@ export default async function handler(req, res) {
       request,
       broker_windows: brokerWindows,
       broker_window_errors: brokerWindowErrors,
+      boundary_count: boundaryCount || 0,
       message:
         brokerWindowErrors.length > 0
           ? 'Request dibuat, tapi ada broker window yang gagal dibuat.'
