@@ -1000,6 +1000,7 @@ export default function AdminPsSettings({ session }) {
 
       <section style={styles.section}>
         <h3 style={styles.sectionTitle}>TS Share / Master Pool</h3>
+
         <p style={styles.sectionSub}>
           PS fee client dibagi menjadi bagian TS dan Master Pool. Client net tidak
           boleh berkurang di luar PS fee.
@@ -1008,12 +1009,16 @@ export default function AdminPsSettings({ session }) {
         <div style={styles.grid}>
           <div style={styles.card}>
             <div style={styles.label}>TS Share</div>
-            <div style={styles.value}>{formatPercent(activeSplit?.ts_share_rate)}</div>
+            <div style={styles.value}>
+              {formatPercent(activeSplit?.ts_share_rate)}
+            </div>
           </div>
 
           <div style={styles.card}>
             <div style={styles.label}>Master Pool</div>
-            <div style={styles.value}>{formatPercent(activeSplit?.master_pool_rate)}</div>
+            <div style={styles.value}>
+              {formatPercent(activeSplit?.master_pool_rate)}
+            </div>
           </div>
 
           <div style={styles.card}>
@@ -1035,43 +1040,9 @@ export default function AdminPsSettings({ session }) {
         emptyText="Belum ada distribution item."
       />
 
-        <div style={styles.tableWrap}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Level Upline</th>
-                <th style={styles.th}>Weight</th>
-                <th style={styles.th}>Fixed Amount</th>
-                <th style={styles.th}>Note</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {(data?.distribution_items || []).map((item) => (
-                <tr key={item.id}>
-                  <td style={styles.td}>Level {item.upline_level}</td>
-                  <td style={styles.td}>
-                    <strong>{item.weight_value}</strong>
-                  </td>
-                  <td style={styles.td}>{formatMoney(item.fixed_amount_idr)}</td>
-                  <td style={styles.td}>{item.note || '-'}</td>
-                </tr>
-              ))}
-
-              {!loading && (data?.distribution_items || []).length === 0 && (
-                <tr>
-                  <td style={styles.empty} colSpan={4}>
-                    Belum ada distribution item.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
       <section style={styles.section}>
         <h3 style={styles.sectionTitle}>Distribution Rule</h3>
+
         <p style={styles.sectionSub}>
           Rule aktif yang dipakai untuk menghitung pembagian Master Pool.
         </p>
@@ -1110,60 +1081,6 @@ export default function AdminPsSettings({ session }) {
         emptyText="Belum ada client PS setting."
       />
 
-        <div style={styles.tableWrap}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Client</th>
-                <th style={styles.th}>Tier</th>
-                <th style={styles.th}>Override Rate</th>
-                <th style={styles.th}>FX Mode</th>
-                <th style={styles.th}>Fixed FX</th>
-                <th style={styles.th}>Effective From</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {(data?.client_settings || []).map((setting) => {
-                const tier = tierMap[setting.ps_tier_id]
-
-                return (
-                  <tr key={setting.id}>
-                    <td style={styles.td}>
-                      {getPartnerName(partnerMap, setting.client_partner_id)}
-                    </td>
-                    <td style={styles.td}>
-                      {tier ? `${tier.tier_code} — ${tier.tier_name}` : '-'}
-                    </td>
-                    <td style={styles.td}>
-                      {setting.ps_fee_rate_override === null ||
-                      setting.ps_fee_rate_override === undefined
-                        ? '-'
-                        : formatPercent(setting.ps_fee_rate_override)}
-                    </td>
-                    <td style={styles.td}>{setting.fx_mode || '-'}</td>
-                    <td style={styles.td}>
-                      {setting.fixed_fx_rate
-                        ? Number(setting.fixed_fx_rate).toLocaleString('id-ID')
-                        : '-'}
-                    </td>
-                    <td style={styles.td}>{formatDate(setting.effective_from)}</td>
-                  </tr>
-                )
-              })}
-
-              {!loading && (data?.client_settings || []).length === 0 && (
-                <tr>
-                  <td style={styles.empty} colSpan={6}>
-                    Belum ada client PS setting.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
       <AdjustableTable
         title="FX Snapshot"
         subtitle="Snapshot rate USD/IDR untuk penguncian nilai invoice. Sekarang masih kosong, nanti terisi saat calculation/invoice PS berjalan."
@@ -1173,43 +1090,6 @@ export default function AdminPsSettings({ session }) {
         loading={loading}
         emptyText="Belum ada FX snapshot."
       />
-
-        <div style={styles.tableWrap}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Source</th>
-                <th style={styles.th}>Base</th>
-                <th style={styles.th}>Quote</th>
-                <th style={styles.th}>Rate</th>
-                <th style={styles.th}>Source Date</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {(data?.fx_snapshots || []).map((fx) => (
-                <tr key={fx.id}>
-                  <td style={styles.td}>{fx.source || '-'}</td>
-                  <td style={styles.td}>{fx.base_currency || '-'}</td>
-                  <td style={styles.td}>{fx.quote_currency || '-'}</td>
-                  <td style={styles.td}>
-                    {Number(fx.rate || 0).toLocaleString('id-ID')}
-                  </td>
-                  <td style={styles.td}>{formatDate(fx.source_date)}</td>
-                </tr>
-              ))}
-
-              {!loading && (data?.fx_snapshots || []).length === 0 && (
-                <tr>
-                  <td style={styles.empty} colSpan={5}>
-                    Belum ada FX snapshot.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
 
       {loading && (
         <section style={styles.section}>
