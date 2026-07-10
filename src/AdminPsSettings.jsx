@@ -581,13 +581,30 @@ export default function AdminPsSettings({ session }) {
     },
   ]
 
-  const clientSettingColumns = [
+    const clientSettingColumns = [
     {
       key: 'client_partner_id',
       label: 'Client',
       width: 240,
       render: (setting) =>
         getPartnerName(partnerMap, setting.client_partner_id),
+    },
+    {
+      key: 'is_active',
+      label: 'Status',
+      width: 130,
+      render: (setting) =>
+        setting.is_active ? (
+          <span style={{ color: '#86efac', fontWeight: 900 }}>ACTIVE</span>
+        ) : (
+          <span style={{ color: '#fca5a5', fontWeight: 900 }}>INACTIVE</span>
+        ),
+    },
+    {
+      key: 'version_no',
+      label: 'Version',
+      width: 120,
+      render: (setting) => setting.version_no || 1,
     },
     {
       key: 'ps_tier_id',
@@ -632,39 +649,26 @@ export default function AdminPsSettings({ session }) {
       width: 200,
       render: (setting) => formatDate(setting.effective_from),
     },
-  ]
-
-  const fxColumns = [
     {
-      key: 'source',
-      label: 'Source',
-      width: 180,
-      render: (fx) => fx.source || '-',
+      key: 'effective_until',
+      label: 'Effective Until',
+      width: 200,
+      render: (setting) => formatDate(setting.effective_until),
     },
     {
-      key: 'base_currency',
-      label: 'Base',
-      width: 120,
-      render: (fx) => fx.base_currency || '-',
+      key: 'source_setting_change_id',
+      label: 'Source Request',
+      width: 260,
+      render: (setting) =>
+        setting.source_setting_change_id
+          ? setting.source_setting_change_id
+          : '-',
     },
     {
-      key: 'quote_currency',
-      label: 'Quote',
-      width: 120,
-      render: (fx) => fx.quote_currency || '-',
-    },
-    {
-      key: 'rate',
-      label: 'Rate',
-      width: 180,
-      render: (fx) =>
-        Number(fx.rate || 0).toLocaleString('id-ID'),
-    },
-    {
-      key: 'source_date',
-      label: 'Source Date',
-      width: 220,
-      render: (fx) => formatDate(fx.source_date),
+      key: 'note',
+      label: 'Note',
+      width: 360,
+      render: (setting) => setting.note || '-',
     },
   ]
   
