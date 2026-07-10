@@ -27,6 +27,17 @@ function shortText(value, max = 160) {
   return text.slice(0, max) + '...'
 }
 
+function isDue(row) {
+  if (!row?.effective_from) return true
+
+  const effectiveDate = new Date(row.effective_from)
+  const now = new Date()
+
+  if (Number.isNaN(effectiveDate.getTime())) return false
+
+  return effectiveDate <= now
+}
+
 function StatusBadge({ status }) {
   const value = status || '-'
 
@@ -71,6 +82,10 @@ export default function AdminPsRequests({ session }) {
 
   const [actionLoadingId, setActionLoadingId] = useState('')
   const [actionMessage, setActionMessage] = useState(null)
+
+  const [applyLoading, setApplyLoading] = useState(false)
+  const [forceApplyId, setForceApplyId] = useState('')
+  const [applyMessage, setApplyMessage] = useState(null)
 
   const token = session?.access_token
 
@@ -170,6 +185,7 @@ export default function AdminPsRequests({ session }) {
 
     setActionLoadingId(row.id)
     setActionMessage(null)
+    setApplyMessage(null)
 
     try {
       const res = await fetch('/api/admin-review-ps-request', {
@@ -208,6 +224,148 @@ export default function AdminPsRequests({ session }) {
     }
   }
 
+  async function applyDueRequests() {
+    if (!token) {
+      setApplyMessage({
+        type: 'error',
+        text: 'Session admin tidak ditemukan. Login ulang dulu.',
+      })
+      return
+    }
+
+    const confirmed = window.confirm(
+      'Apply semua PS Request yang sudah approved dan sudah masuk tanggal effective?\n\nRequest yang belum waktunya tidak akan diterapkan.'
+    )
+
+    if (!confirmed) return
+
+    setApplyLoading(true)
+    setApplyMessage(null)
+    setActionMessage(null)
+
+    try {
+      const res = await fetch('/api/admin-apply-ps-requests', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          force: false,
+          limit: 50,
+        }),
+      })
+
+      const result = await res.json()
+
+      if (!res.ok || !result.ok) {
+        throw new Error(result.error || 'Gagal apply PS requests')
+      }
+
+      const appliedCount = result.result?.applied_count || 0
+      const skippedCount = result.result?.skipped_count || 0
+
+      setApplyMessage({
+        type: appliedCount > 0 ? 'success' : 'info',
+        text:
+          appliedCount > 0
+            ? `${appliedCount} PS request berhasil diterapkan. Skipped: ${skippedCount}.`
+            : 'Tidak ada PS request yang sudah due untuk diterapkan.',
+      })
+
+      setRefreshKey((prev) => prev + 1)
+    } catch (err) {
+      setApplyMessage({
+        type: 'error',
+        text: err.message || 'Gagal apply PS requests.',
+      })
+    } finally {
+      setApplyLoading(false)
+    }
+  }
+
+  async function forceApplyRequest(row) {
+    if (!token) {
+      setApplyMessage({
+        type: 'error',
+        text: 'Session admin tidak ditemukan. Login ulang dulu.',
+      })
+      return
+    }
+
+    if (row.approval_status !== 'approved') {
+      setApplyMessage({
+        type: 'error',
+        text: 'Force Apply hanya bisa untuk request status approved.',
+      })
+      return
+    }
+
+    const confirmed = window.confirm(
+      `FORCE APPLY PS Request ${row.request_code}?\n\nIni akan langsung menerapkan setting PS baru walaupun tanggal effective belum masuk.\n\nGunakan hanya untuk testing/admin override.`
+    )
+
+    if (!confirmed) return
+
+    const confirmText = window.prompt(
+      'Ketik FORCE untuk melanjutkan:',
+      ''
+    )
+
+    if (confirmText !== 'FORCE') {
+      setApplyMessage({
+        type: 'error',
+        text: 'Force Apply dibatalkan. Konfirmasi tidak sesuai.',
+      })
+      return
+    }
+
+    setForceApplyId(row.id)
+    setApplyMessage(null)
+    setActionMessage(null)
+
+    try {
+      const res = await fetch('/api/admin-apply-ps-requests', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          requestId: row.id,
+          force: true,
+          limit: 1,
+        }),
+      })
+
+      const result = await res.json()
+
+      if (!res.ok || !result.ok) {
+        throw new Error(result.error || 'Gagal force apply PS request')
+      }
+
+      const appliedCount = result.result?.applied_count || 0
+      const skippedCount = result.result?.skipped_count || 0
+
+      setApplyMessage({
+        type: appliedCount > 0 ? 'success' : 'error',
+        text:
+          appliedCount > 0
+            ? `Force Apply sukses. ${appliedCount} PS request diterapkan.`
+            : `Force Apply tidak menerapkan request. Skipped: ${skippedCount}.`,
+      })
+
+      setRefreshKey((prev) => prev + 1)
+    } catch (err) {
+      setApplyMessage({
+        type: 'error',
+        text: err.message || 'Gagal force apply PS request.',
+      })
+    } finally {
+      setForceApplyId('')
+    }
+  }
+
   const columns = [
     {
       key: 'request_code',
@@ -228,6 +386,26 @@ export default function AdminPsRequests({ session }) {
       render: (row) => <StatusBadge status={row.approval_status} />,
     },
     {
+      key: 'due_status',
+      label: 'Due',
+      width: 130,
+      render: (row) => {
+        if (row.approval_status === 'active') {
+          return <span style={{ color: '#86efac', fontWeight: 800 }}>Applied</span>
+        }
+
+        if (row.approval_status !== 'approved') {
+          return '-'
+        }
+
+        return isDue(row) ? (
+          <span style={{ color: '#86efac', fontWeight: 800 }}>Due</span>
+        ) : (
+          <span style={{ color: '#fbbf24', fontWeight: 800 }}>Waiting</span>
+        )
+      },
+    },
+    {
       key: 'created_at',
       label: 'Created',
       width: 180,
@@ -238,6 +416,12 @@ export default function AdminPsRequests({ session }) {
       label: 'Effective GMT+7',
       width: 180,
       render: (row) => formatDate(row.effective_from),
+    },
+    {
+      key: 'applied_at',
+      label: 'Applied At',
+      width: 180,
+      render: (row) => formatDate(row.applied_at),
     },
     {
       key: 'old_value_summary',
@@ -280,9 +464,9 @@ export default function AdminPsRequests({ session }) {
     {
       key: 'actions',
       label: 'Action',
-      width: 230,
+      width: 330,
       render: (row) => {
-        const lockedStatuses = [
+        const reviewLockedStatuses = [
           'approved',
           'rejected',
           'active',
@@ -290,10 +474,36 @@ export default function AdminPsRequests({ session }) {
           'superseded',
         ]
 
-        const isLocked = lockedStatuses.includes(row.approval_status)
-        const isLoading = actionLoadingId === row.id
+        const isReviewLocked = reviewLockedStatuses.includes(row.approval_status)
+        const isReviewLoading = actionLoadingId === row.id
+        const isForceLoading = forceApplyId === row.id
 
-        if (isLocked) {
+        if (row.approval_status === 'approved') {
+          return (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <StatusBadge status="approved" />
+
+              <button
+                type="button"
+                onClick={() => forceApplyRequest(row)}
+                disabled={isForceLoading || applyLoading}
+                style={{
+                  border: '1px solid rgba(251, 191, 36, 0.45)',
+                  background: 'rgba(251, 191, 36, 0.12)',
+                  color: '#fbbf24',
+                  padding: '8px 10px',
+                  borderRadius: 10,
+                  cursor: isForceLoading ? 'not-allowed' : 'pointer',
+                  fontWeight: 800,
+                }}
+              >
+                {isForceLoading ? 'Applying...' : 'Force Apply'}
+              </button>
+            </div>
+          )
+        }
+
+        if (isReviewLocked) {
           return <StatusBadge status={row.approval_status} />
         }
 
@@ -302,35 +512,35 @@ export default function AdminPsRequests({ session }) {
             <button
               type="button"
               onClick={() => reviewRequest(row, 'approve')}
-              disabled={isLoading}
+              disabled={isReviewLoading}
               style={{
                 border: '1px solid rgba(34, 197, 94, 0.35)',
                 background: 'rgba(34, 197, 94, 0.12)',
                 color: '#86efac',
                 padding: '8px 10px',
                 borderRadius: 10,
-                cursor: isLoading ? 'not-allowed' : 'pointer',
+                cursor: isReviewLoading ? 'not-allowed' : 'pointer',
                 fontWeight: 800,
               }}
             >
-              {isLoading ? '...' : 'Approve'}
+              {isReviewLoading ? '...' : 'Approve'}
             </button>
 
             <button
               type="button"
               onClick={() => reviewRequest(row, 'reject')}
-              disabled={isLoading}
+              disabled={isReviewLoading}
               style={{
                 border: '1px solid rgba(239, 68, 68, 0.35)',
                 background: 'rgba(239, 68, 68, 0.12)',
                 color: '#fca5a5',
                 padding: '8px 10px',
                 borderRadius: 10,
-                cursor: isLoading ? 'not-allowed' : 'pointer',
+                cursor: isReviewLoading ? 'not-allowed' : 'pointer',
                 fontWeight: 800,
               }}
             >
-              {isLoading ? '...' : 'Reject'}
+              {isReviewLoading ? '...' : 'Reject'}
             </button>
           </div>
         )
@@ -368,6 +578,12 @@ export default function AdminPsRequests({ session }) {
       fontSize: 14,
       maxWidth: 760,
     },
+    headerButtons: {
+      display: 'flex',
+      gap: 10,
+      flexWrap: 'wrap',
+      justifyContent: 'flex-end',
+    },
     button: {
       border: '1px solid rgba(251, 191, 36, 0.45)',
       background: 'rgba(251, 191, 36, 0.12)',
@@ -376,6 +592,15 @@ export default function AdminPsRequests({ session }) {
       borderRadius: 12,
       cursor: 'pointer',
       fontWeight: 800,
+    },
+    applyButton: {
+      border: '1px solid rgba(34, 197, 94, 0.40)',
+      background: 'rgba(34, 197, 94, 0.12)',
+      color: '#86efac',
+      padding: '10px 14px',
+      borderRadius: 12,
+      cursor: 'pointer',
+      fontWeight: 900,
     },
     grid: {
       display: 'grid',
@@ -446,6 +671,29 @@ export default function AdminPsRequests({ session }) {
       border: '1px solid rgba(34, 197, 94, 0.28)',
       color: '#bbf7d0',
     },
+    info: {
+      padding: 14,
+      borderRadius: 14,
+      background: 'rgba(14, 165, 233, 0.12)',
+      border: '1px solid rgba(14, 165, 233, 0.28)',
+      color: '#bae6fd',
+    },
+    warning: {
+      padding: 14,
+      borderRadius: 14,
+      background: 'rgba(251, 191, 36, 0.10)',
+      border: '1px solid rgba(251, 191, 36, 0.24)',
+      color: '#fde68a',
+      lineHeight: 1.5,
+      fontSize: 13,
+    },
+  }
+
+  const messageStyle = (message) => {
+    if (!message) return null
+    if (message.type === 'success') return styles.success
+    if (message.type === 'info') return styles.info
+    return styles.error
   }
 
   return (
@@ -460,14 +708,32 @@ export default function AdminPsRequests({ session }) {
           </p>
         </div>
 
-        <button
-          type="button"
-          style={styles.button}
-          onClick={() => setRefreshKey((prev) => prev + 1)}
-          disabled={loading}
-        >
-          {loading ? 'Loading...' : 'Refresh Requests'}
-        </button>
+        <div style={styles.headerButtons}>
+          <button
+            type="button"
+            style={styles.applyButton}
+            onClick={applyDueRequests}
+            disabled={applyLoading}
+          >
+            {applyLoading ? 'Applying...' : 'Apply Due Requests'}
+          </button>
+
+          <button
+            type="button"
+            style={styles.button}
+            onClick={() => setRefreshKey((prev) => prev + 1)}
+            disabled={loading}
+          >
+            {loading ? 'Loading...' : 'Refresh Requests'}
+          </button>
+        </div>
+      </section>
+
+      <section style={styles.warning}>
+        <strong>Catatan:</strong> Approve hanya menyetujui request. Setting PS baru
+        baru aktif setelah <strong>Apply Due Requests</strong> dijalankan pada atau
+        setelah tanggal effective. Tombol <strong>Force Apply</strong> hanya untuk
+        testing/admin override.
       </section>
 
       {summary && (
@@ -485,6 +751,11 @@ export default function AdminPsRequests({ session }) {
           <div style={styles.card}>
             <div style={styles.label}>Approved</div>
             <div style={styles.value}>{summary.by_status?.approved || 0}</div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.label}>Active</div>
+            <div style={styles.value}>{summary.by_status?.active || 0}</div>
           </div>
 
           <div style={styles.card}>
@@ -546,14 +817,14 @@ export default function AdminPsRequests({ session }) {
       {error && <div style={styles.error}>{error}</div>}
 
       {actionMessage && (
-        <div
-          style={
-            actionMessage.type === 'success'
-              ? styles.success
-              : styles.error
-          }
-        >
+        <div style={messageStyle(actionMessage)}>
           {actionMessage.text}
+        </div>
+      )}
+
+      {applyMessage && (
+        <div style={messageStyle(applyMessage)}>
+          {applyMessage.text}
         </div>
       )}
 
