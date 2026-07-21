@@ -245,6 +245,57 @@ export default async function handler(req, res) {
       summary.by_status[key] = (summary.by_status[key] || 0) + 1
     }
 
+    const { data: applyLogRows, error: applyLogError } =
+      await adminClient
+        .from('ts_activity_timeline_view')
+        .select(
+          `
+          activity_id,
+          created_at,
+          created_at_gmt7,
+          gmt7_time,
+          activity_type,
+          severity,
+          action,
+          title,
+          message,
+          target_display_name,
+          old_value_summary,
+          new_value_summary,
+          metadata
+        `
+        )
+        .eq('activity_type', 'PS_REQUEST')
+        .in('action', [
+          'PS_DUE_REQUESTS_CRON_RUN',
+          'PS_SETTING_CHANGE_APPLIED',
+        ])
+        .order('created_at', { ascending: false })
+        .limit(20)
+
+    if (applyLogError) {
+      return json(res, 500, {
+        ok: false,
+        error: applyLogError.message,
+      })
+    }
+
+    const applyLogs = applyLogRows || []
+
+    const latestCronRun =
+      applyLogs.find((log) => log.action === 'PS_DUE_REQUESTS_CRON_RUN') ||
+      null
+
+    const latestApplied =
+      applyLogs.find((log) => log.action === 'PS_SETTING_CHANGE_APPLIED') ||
+      null
+
+    const applyStatus = {
+      latest_cron_run: latestCronRun,
+      latest_applied: latestApplied,
+      recent_logs: applyLogs,
+    }
+    
     return json(res, 200, {
       ok: true,
       user: {
@@ -262,6 +313,7 @@ export default async function handler(req, res) {
         search,
       },
       summary,
+      apply_status: applyStatus,
       requests: enrichedRequests,
     })
   } catch (error) {
