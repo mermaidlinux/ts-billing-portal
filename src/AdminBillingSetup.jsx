@@ -221,7 +221,7 @@ export default function AdminBillingSetup({ session }) {
 
       setMessage({
         type: 'success',
-        text: `Client berhasil di-${data.action}. Backup dikirim ke Google Sheet.`,
+        text: `Client berhasil di-${data.action}. Data tersimpan ke Supabase. Backup Google Sheet sementara nonaktif.`,
       })
 
       setClientForm(blankClientForm)
@@ -290,7 +290,7 @@ export default function AdminBillingSetup({ session }) {
 
       setMessage({
         type: 'success',
-        text: `Service berhasil di-${data.action}. Backup dikirim ke Google Sheet.`,
+        text: `Service berhasil di-${data.action}. Data tersimpan ke Supabase. Backup Google Sheet sementara nonaktif.`,
       })
 
       setServiceForm({
@@ -356,6 +356,95 @@ export default function AdminBillingSetup({ session }) {
     }
   }
 
+  async function generateAllNextInvoices() {
+    const activeServiceClientIds = [
+      ...new Set(
+        services
+          .filter((service) => service.is_active === true)
+          .map((service) => service.client_id)
+          .filter(Boolean)
+      ),
+    ]
+
+    const targetClients = clients.filter((client) => {
+      return (
+        client.status === 'active' &&
+        activeServiceClientIds.includes(client.id)
+      )
+    })
+
+    if (targetClients.length <= 0) {
+      setMessage({
+        type: 'error',
+        text: 'Tidak ada client aktif yang punya service aktif.',
+      })
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Generate invoice berikutnya untuk semua client aktif?\n\nClient diproses: ${targetClients.length}\n\nSistem anti dobel. Jika invoice periode berikutnya sudah ada, tidak akan dibuat ulang.`
+    )
+
+    if (!confirmed) return
+
+    setBulkGenerating(true)
+    setMessage(null)
+
+    let createdCount = 0
+    let existingCount = 0
+    let failedCount = 0
+    const failedItems = []
+
+    try {
+      for (const client of targetClients) {
+        try {
+          const { data, error } = await supabase.rpc(
+            'ts_admin_generate_next_billing_invoice',
+            {
+              p_client_id: client.id,
+            }
+          )
+
+          if (error) throw error
+
+          if (data?.ok === false) {
+            failedCount += 1
+            failedItems.push(`${client.client_name}: ${data.error || 'Gagal'}`)
+            continue
+          }
+
+          if (data?.already_exists) {
+            existingCount += 1
+          } else {
+            createdCount += 1
+          }
+
+          await backupToSheet('invoices', 'generate_next_invoice_bulk', {
+            client_name: client.client_name,
+            result: data,
+          })
+        } catch (err) {
+          failedCount += 1
+          failedItems.push(
+            `${client.client_name}: ${err.message || 'Gagal generate'}`
+          )
+        }
+      }
+
+      setMessage({
+        type: failedCount > 0 ? 'error' : 'success',
+        text:
+          failedCount > 0
+            ? `Generate selesai dengan error. Baru dibuat: ${createdCount}, sudah ada: ${existingCount}, gagal: ${failedCount}. ${failedItems.join(' | ')}`
+            : `Generate selesai. Baru dibuat: ${createdCount}, sudah ada: ${existingCount}, gagal: ${failedCount}.`,
+      })
+
+      setRefreshKey((prev) => prev + 1)
+    } finally {
+      setBulkGenerating(false)
+    }
+  }
+  
   async function rebuildInvoice(row) {
     if (!row?.id) {
       setMessage({
@@ -1537,14 +1626,23 @@ export default function AdminBillingSetup({ session }) {
           </label>
         </div>
 
-        <div style={{ marginTop: 14 }}>
+        <div style={{ ...styles.buttonRow, marginTop: 14 }}>
           <button
             type="button"
             style={styles.primaryButton}
             onClick={generateNextInvoice}
-            disabled={generating}
+            disabled={generating || bulkGenerating}
           >
             {generating ? 'Generating...' : 'Generate Next Invoice'}
+          </button>
+        
+          <button
+            type="button"
+            style={styles.button}
+            onClick={generateAllNextInvoices}
+            disabled={generating || bulkGenerating}
+          >
+            {bulkGenerating ? 'Generating All...' : 'Generate All Active Clients'}
           </button>
         </div>
       </section>
