@@ -700,7 +700,7 @@ Invoice: ${invoice.invoice_no}`,
                       event.target.value
                     )
                   }
-                  placeholder="Contoh: Transfer dari rekening atas nama Franky."
+                  placeholder="Contoh: Transfer dari rekening atas nama pengirim."
                   rows="3"
                   maxLength="500"
                   disabled={uploading}
