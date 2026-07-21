@@ -183,6 +183,28 @@ export default function AdminBillingSetup({ session }) {
     }
   }
 
+  async function testBackup() {
+    setMessage(null)
+
+    try {
+      await backupToSheet('logs', 'test_backup_from_billing_setup', {
+        message: 'Test backup from TS Billing Setup',
+        source: 'Billing Setup Page',
+        tested_at: new Date().toISOString(),
+      })
+
+      setMessage({
+        type: 'success',
+        text: 'Tab backup terbuka. Jika hasil ok:true, refresh Google Sheet tab logs.',
+      })
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Gagal test backup Google Sheet.',
+      })
+    }
+  }
+  
   async function backupRowsToSheet(rows) {
     const popupName = `ts_billing_backup_batch_${Date.now()}`
     const popup = window.open('about:blank', popupName)
