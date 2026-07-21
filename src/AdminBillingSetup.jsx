@@ -145,7 +145,7 @@ export default function AdminBillingSetup({ session }) {
     })
   }
 
-  async function submitBackupForm(table, action, payload, openNewTab = true) {
+  function buildBackupUrl(table, action, payload) {
     const url = backupUrl.trim()
     const secret = backupSecret.trim()
 
@@ -153,122 +153,102 @@ export default function AdminBillingSetup({ session }) {
       throw new Error('Backup URL/secret belum diisi.')
     }
 
-    return new Promise((resolve, reject) => {
-      const targetName = `ts_billing_backup_${Date.now()}_${Math.random()
-        .toString(16)
-        .slice(2)}`
+    const params = new URLSearchParams()
+    params.set('secret', secret)
+    params.set('table', table)
+    params.set('action', action)
+    params.set('payload', JSON.stringify(payload || {}))
 
-      let popup = null
+    return `${url}?${params.toString()}`
+  }
 
-      if (openNewTab) {
-        popup = window.open('about:blank', targetName)
-
-        if (!popup) {
-          reject(
-            new Error(
-              'Tab backup gagal dibuka. Izinkan pop-up untuk ts-billing-portal.vercel.app.'
-            )
-          )
-          return
-        }
-
-        popup.document.write(`
-          <html>
-            <head>
-              <title>TS Billing Backup</title>
-              <style>
-                body {
-                  font-family: Arial, sans-serif;
-                  background: #0f172a;
-                  color: #e5e7eb;
-                  padding: 24px;
-                }
-                .box {
-                  max-width: 520px;
-                  border: 1px solid rgba(148,163,184,.3);
-                  border-radius: 16px;
-                  padding: 20px;
-                  background: rgba(15,23,42,.92);
-                }
-                h2 { margin-top: 0; color: #fbbf24; }
-                code { color: #86efac; }
-              </style>
-            </head>
-            <body>
-              <div class="box">
-                <h2>Mengirim backup...</h2>
-                <p>Target table: <code>${table}</code></p>
-                <p>Action: <code>${action}</code></p>
-                <p>Tunggu hasil dari Google Apps Script.</p>
-              </div>
-            </body>
-          </html>
-        `)
-        popup.document.close()
-      }
-
-      const form = document.createElement('form')
-      form.method = 'POST'
-      form.action = url
-      form.target = openNewTab ? targetName : '_self'
-      form.enctype = 'application/x-www-form-urlencoded'
-      form.style.display = 'none'
-
-      function addInput(name, value) {
-        const input = document.createElement('input')
-        input.type = 'hidden'
-        input.name = name
-        input.value = value
-        form.appendChild(input)
-      }
-
-      addInput('secret', secret)
-      addInput('table', table)
-      addInput('action', action)
-      addInput('payload', JSON.stringify(payload || {}))
-
-      document.body.appendChild(form)
-      form.submit()
-
-      setTimeout(() => {
-        try {
-          document.body.removeChild(form)
-        } catch {}
-
-        resolve({
-          ok: true,
-          opened_tab: openNewTab,
-        })
-      }, 1500)
-    })
+  function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
   async function backupToSheet(table, action, payload) {
-    return submitBackupForm(table, action, payload, true)
-  }
+    const targetUrl = buildBackupUrl(table, action, payload)
 
-  async function testBackup() {
-    setMessage(null)
+    const popup = window.open(targetUrl, '_blank')
 
-    try {
-      await backupToSheet('logs', 'test_backup_from_billing_setup', {
-        message: 'Test backup from TS Billing Setup',
-        source: 'Billing Setup Page',
-        tested_at: new Date().toISOString(),
-      })
+    if (!popup) {
+      throw new Error(
+        'Tab backup gagal dibuka. Izinkan pop-up untuk ts-billing-portal.vercel.app.'
+      )
+    }
 
-      setMessage({
-        type: 'success',
-        text: 'Tab backup sudah dibuka. Cek tab baru, lalu refresh Google Sheet tab logs.',
-      })
-    } catch (err) {
-      setMessage({
-        type: 'error',
-        text: err.message || 'Gagal test backup Google Sheet.',
-      })
+    return {
+      ok: true,
+      url: targetUrl,
     }
   }
 
+  async function backupRowsToSheet(rows) {
+    const popupName = `ts_billing_backup_batch_${Date.now()}`
+    const popup = window.open('about:blank', popupName)
+
+    if (!popup) {
+      throw new Error(
+        'Tab backup gagal dibuka. Izinkan pop-up untuk ts-billing-portal.vercel.app.'
+      )
+    }
+
+    popup.document.write(`
+      <html>
+        <head>
+          <title>TS Billing Backup</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              background: #0f172a;
+              color: #e5e7eb;
+              padding: 24px;
+            }
+            .box {
+              max-width: 620px;
+              border: 1px solid rgba(148,163,184,.3);
+              border-radius: 16px;
+              padding: 20px;
+              background: rgba(15,23,42,.92);
+            }
+            h2 { margin-top: 0; color: #fbbf24; }
+            code { color: #86efac; }
+          </style>
+        </head>
+        <body>
+          <div class="box">
+            <h2>Menyiapkan backup batch...</h2>
+            <p>Total row: <code>${rows.length}</code></p>
+            <p>Jangan tutup tab ini sampai proses selesai.</p>
+          </div>
+        </body>
+      </html>
+    `)
+    popup.document.close()
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index]
+      const targetUrl = buildBackupUrl(row.table, row.action, row.payload)
+
+      popup.location.href = targetUrl
+
+      await wait(1300)
+    }
+
+    const finishUrl = buildBackupUrl('logs', 'backup_batch_done', {
+      total_rows: rows.length,
+      finished_at: new Date().toISOString(),
+      source: 'Billing Setup Page',
+    })
+
+    popup.location.href = finishUrl
+
+    return {
+      ok: true,
+      total_rows: rows.length,
+    }
+  }
+  
   async function backupAllCurrentData() {
     setMessage(null)
 
@@ -305,30 +285,11 @@ export default function AdminBillingSetup({ session }) {
         })
       }
 
-      rows.push({
-        table: 'logs',
-        action: 'backup_all_current_data_done',
-        payload: {
-          clients_count: clients.length,
-          services_count: services.length,
-          invoices_count: invoices.length,
-          total_sent: rows.length,
-          finished_at: new Date().toISOString(),
-        },
-      })
-
-      await submitBackupForm(
-        'logs',
-        'backup_all_current_data_batch',
-        {
-          rows,
-        },
-        true
-      )
+      await backupRowsToSheet(rows)
 
       setMessage({
         type: 'success',
-        text: `Backup batch dikirim: ${rows.length} row. Cek tab Apps Script yang terbuka. Kalau ok:true, refresh Google Sheet.`,
+        text: `Backup batch berjalan: ${rows.length} row. Tunggu 15-20 detik lalu refresh Google Sheet.`,
       })
     } catch (err) {
       setMessage({
