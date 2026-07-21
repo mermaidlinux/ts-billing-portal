@@ -145,7 +145,7 @@ export default function AdminBillingSetup({ session }) {
     })
   }
 
-    async function backupToSheet(table, action, payload) {
+  async function backupToSheet(table, action, payload) {
     const url = backupUrl.trim()
     const secret = backupSecret.trim()
 
@@ -157,33 +157,18 @@ export default function AdminBillingSetup({ session }) {
       }
     }
 
+    const params = new URLSearchParams()
+    params.set('secret', secret)
+    params.set('table', table)
+    params.set('action', action)
+    params.set('payload', JSON.stringify(payload || {}))
+
+    const backupUrlWithParams = `${url}?${params.toString()}`
+
     return new Promise((resolve) => {
-      const iframeName = `ts_backup_iframe_${Date.now()}_${Math.random()
-        .toString(16)
-        .slice(2)}`
-
       const iframe = document.createElement('iframe')
-      iframe.name = iframeName
       iframe.style.display = 'none'
-
-      const form = document.createElement('form')
-      form.method = 'POST'
-      form.action = url
-      form.target = iframeName
-      form.style.display = 'none'
-
-      function addInput(name, value) {
-        const input = document.createElement('input')
-        input.type = 'hidden'
-        input.name = name
-        input.value = value
-        form.appendChild(input)
-      }
-
-      addInput('secret', secret)
-      addInput('table', table)
-      addInput('action', action)
-      addInput('payload', JSON.stringify(payload || {}))
+      iframe.src = backupUrlWithParams
 
       let finished = false
 
@@ -193,25 +178,22 @@ export default function AdminBillingSetup({ session }) {
 
         setTimeout(() => {
           try {
-            document.body.removeChild(form)
-          } catch {}
-
-          try {
             document.body.removeChild(iframe)
           } catch {}
         }, 300)
 
-        resolve({ ok: true })
+        resolve({
+          ok: true,
+          url: backupUrlWithParams,
+        })
       }
 
       iframe.onload = cleanup
+      iframe.onerror = cleanup
 
       document.body.appendChild(iframe)
-      document.body.appendChild(form)
 
-      form.submit()
-
-      setTimeout(cleanup, 2500)
+      setTimeout(cleanup, 3000)
     })
   }
 
