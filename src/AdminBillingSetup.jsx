@@ -355,6 +355,63 @@ export default function AdminBillingSetup({ session }) {
     }
   }
 
+  async function rebuildInvoice(row) {
+    if (!row?.id) {
+      setMessage({
+        type: 'error',
+        text: 'Invoice ID tidak ditemukan.',
+      })
+      return
+    }
+
+    if (row.status === 'paid') {
+      setMessage({
+        type: 'error',
+        text: 'Invoice sudah PAID, tidak boleh direbuild.',
+      })
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Rebuild invoice ${row.invoice_no} dari service ACTIVE sekarang?\n\nService OFF tidak akan masuk invoice.\nTotal invoice akan dihitung ulang.`
+    )
+
+    if (!confirmed) return
+
+    setMessage(null)
+
+    try {
+      const { data, error } = await supabase.rpc(
+        'ts_admin_rebuild_billing_invoice',
+        {
+          p_invoice_id: row.id,
+        }
+      )
+
+      if (error) throw error
+
+      if (data?.ok === false) {
+        throw new Error(data.error || 'Rebuild invoice gagal.')
+      }
+
+      await backupToSheet('invoices', 'rebuild_invoice', data)
+
+      setMessage({
+        type: 'success',
+        text:
+          data?.message ||
+          `Invoice ${row.invoice_no} berhasil direbuild dari service aktif.`,
+      })
+
+      setRefreshKey((prev) => prev + 1)
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Gagal rebuild invoice.',
+      })
+    }
+  }
+  
   function editClient(client) {
     setClientForm({
       id: client.id || '',
@@ -586,6 +643,28 @@ export default function AdminBillingSetup({ session }) {
         </div>
       ),
     },
+    {
+      key: 'actions',
+      label: 'Action',
+      width: 180,
+      render: (row) => (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            style={styles.smallButton}
+            onClick={() => rebuildInvoice(row)}
+            disabled={row.status === 'paid'}
+            title={
+              row.status === 'paid'
+                ? 'Invoice paid tidak boleh direbuild'
+                : 'Rebuild invoice dari service aktif'
+            }
+          >
+            Rebuild
+          </button>
+        </div>
+      ),
+    },  
   ]
 
   const styles = {
