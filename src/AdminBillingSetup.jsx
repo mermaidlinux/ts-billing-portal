@@ -145,56 +145,70 @@ export default function AdminBillingSetup({ session }) {
     })
   }
 
-  async function backupToSheet(table, action, payload) {
+  async function submitBackupForm(table, action, payload, openNewTab = true) {
     const url = backupUrl.trim()
     const secret = backupSecret.trim()
 
     if (!url || !secret) {
-      return {
-        ok: false,
-        skipped: true,
-        reason: 'Backup URL/secret belum diisi.',
-      }
+      throw new Error('Backup URL/secret belum diisi.')
     }
 
-    const params = new URLSearchParams()
-    params.set('secret', secret)
-    params.set('table', table)
-    params.set('action', action)
-    params.set('payload', JSON.stringify(payload || {}))
-
-    const backupUrlWithParams = `${url}?${params.toString()}`
-
     return new Promise((resolve) => {
-      const iframe = document.createElement('iframe')
-      iframe.style.display = 'none'
-      iframe.src = backupUrlWithParams
+      const targetName = openNewTab
+        ? '_blank'
+        : `ts_backup_iframe_${Date.now()}_${Math.random()
+            .toString(16)
+            .slice(2)}`
 
-      let finished = false
+      let iframe = null
 
-      function cleanup() {
-        if (finished) return
-        finished = true
+      if (!openNewTab) {
+        iframe = document.createElement('iframe')
+        iframe.name = targetName
+        iframe.style.display = 'none'
+        document.body.appendChild(iframe)
+      }
 
-        setTimeout(() => {
+      const form = document.createElement('form')
+      form.method = 'POST'
+      form.action = url
+      form.target = targetName
+      form.style.display = 'none'
+
+      function addInput(name, value) {
+        const input = document.createElement('input')
+        input.type = 'hidden'
+        input.name = name
+        input.value = value
+        form.appendChild(input)
+      }
+
+      addInput('secret', secret)
+      addInput('table', table)
+      addInput('action', action)
+      addInput('payload', JSON.stringify(payload || {}))
+
+      document.body.appendChild(form)
+      form.submit()
+
+      setTimeout(() => {
+        try {
+          document.body.removeChild(form)
+        } catch {}
+
+        if (iframe) {
           try {
             document.body.removeChild(iframe)
           } catch {}
-        }, 300)
+        }
 
-        resolve({
-          ok: true,
-          url: backupUrlWithParams,
-        })
-      }
-
-      iframe.onload = cleanup
-      iframe.onerror = cleanup
-
-      document.body.appendChild(iframe)
-
-      setTimeout(cleanup, 3000)
+        resolve({ ok: true })
+      }, 1200)
     })
+  }
+
+  async function backupToSheet(table, action, payload) {
+    return submitBackupForm(table, action, payload, true)
   }
 
   async function testBackup() {
@@ -209,7 +223,7 @@ export default function AdminBillingSetup({ session }) {
 
       setMessage({
         type: 'success',
-        text: 'Test backup dikirim. Tunggu 3 detik lalu refresh Google Sheet tab logs.',
+        text: 'Tab Apps Script akan terbuka. Jika hasilnya ok:true, refresh Google Sheet tab logs.',
       })
     } catch (err) {
       setMessage({
@@ -219,7 +233,7 @@ export default function AdminBillingSetup({ session }) {
     }
   }
 
-   async function backupAllCurrentData() {
+  async function backupAllCurrentData() {
     setMessage(null)
 
     const confirmed = window.confirm(
@@ -229,34 +243,56 @@ export default function AdminBillingSetup({ session }) {
     if (!confirmed) return
 
     try {
-      let sentCount = 0
+      const rows = []
 
       for (const client of clients) {
-        await backupToSheet('clients', 'backup_existing_client', client)
-        sentCount += 1
+        rows.push({
+          table: 'clients',
+          action: 'backup_existing_client',
+          payload: client,
+        })
       }
 
       for (const service of services) {
-        await backupToSheet('services', 'backup_existing_service', service)
-        sentCount += 1
+        rows.push({
+          table: 'services',
+          action: 'backup_existing_service',
+          payload: service,
+        })
       }
 
       for (const invoice of invoices) {
-        await backupToSheet('invoices', 'backup_existing_invoice', invoice)
-        sentCount += 1
+        rows.push({
+          table: 'invoices',
+          action: 'backup_existing_invoice',
+          payload: invoice,
+        })
       }
 
-      await backupToSheet('logs', 'backup_all_current_data_done', {
-        clients_count: clients.length,
-        services_count: services.length,
-        invoices_count: invoices.length,
-        total_sent: sentCount,
-        finished_at: new Date().toISOString(),
+      rows.push({
+        table: 'logs',
+        action: 'backup_all_current_data_done',
+        payload: {
+          clients_count: clients.length,
+          services_count: services.length,
+          invoices_count: invoices.length,
+          total_sent: rows.length,
+          finished_at: new Date().toISOString(),
+        },
       })
+
+      await submitBackupForm(
+        'logs',
+        'backup_all_current_data_batch',
+        {
+          rows,
+        },
+        true
+      )
 
       setMessage({
         type: 'success',
-        text: `Backup dikirim: ${sentCount} row. Tunggu 5-10 detik lalu refresh Google Sheet.`,
+        text: `Backup batch dikirim: ${rows.length} row. Cek tab Apps Script yang terbuka. Kalau ok:true, refresh Google Sheet.`,
       })
     } catch (err) {
       setMessage({
