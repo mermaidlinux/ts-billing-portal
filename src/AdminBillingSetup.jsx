@@ -85,6 +85,7 @@ export default function AdminBillingSetup({ session }) {
   const [savingClient, setSavingClient] = useState(false)
   const [savingService, setSavingService] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [sendingInvoiceId, setSendingInvoiceId] = useState('')
   const [message, setMessage] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -587,6 +588,77 @@ export default function AdminBillingSetup({ session }) {
       })
     }
   }
+
+  async function sendInvoiceWhatsApp(row) {
+    if (!row?.id) {
+      setMessage({
+        type: 'error',
+        text: 'Invoice ID tidak ditemukan.',
+      })
+      return
+    }
+
+    if (row.status === 'paid') {
+      setMessage({
+        type: 'error',
+        text: 'Invoice sudah PAID, tidak perlu dikirim sebagai tagihan.',
+      })
+      return
+    }
+
+    if (!row.whatsapp) {
+      setMessage({
+        type: 'error',
+        text: 'Nomor WhatsApp client kosong.',
+      })
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Kirim invoice ${row.invoice_no} ke WhatsApp client via Fonnte?\n\nClient: ${row.client_name}\nWhatsApp: ${row.whatsapp}\n\nInvoice akan otomatis ditandai sebagai unpaid/sent.`
+    )
+
+    if (!confirmed) return
+
+    setSendingInvoiceId(row.id)
+    setMessage(null)
+
+    try {
+      const response = await fetch('/api/admin-payments', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'send_invoice_whatsapp',
+          invoice_id: row.id,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Gagal kirim invoice via Fonnte.')
+      }
+
+      setMessage({
+        type: 'success',
+        text:
+          result.message ||
+          `Invoice ${row.invoice_no} berhasil dikirim via Fonnte.`,
+      })
+
+      setRefreshKey((prev) => prev + 1)
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Gagal kirim invoice via Fonnte.',
+      })
+    } finally {
+      setSendingInvoiceId('')
+    }
+  }
   
   const clientColumns = [
     {
@@ -804,6 +876,20 @@ export default function AdminBillingSetup({ session }) {
             }
           >
             Mark Sent
+          </button>
+
+          <button
+            type="button"
+            style={styles.smallButton}
+            onClick={() => sendInvoiceWhatsApp(row)}
+            disabled={row.status === 'paid' || sendingInvoiceId === row.id}
+            title={
+              row.status === 'paid'
+                ? 'Invoice paid tidak perlu dikirim'
+                : 'Kirim invoice via Fonnte'
+            }
+          >
+            {sendingInvoiceId === row.id ? 'Sending...' : 'Send WA'}
           </button>
 
           <button
