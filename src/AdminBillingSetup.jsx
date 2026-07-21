@@ -459,6 +459,135 @@ export default function AdminBillingSetup({ session }) {
     })
   }
 
+  function normalizeWhatsApp(value) {
+    const digits = String(value || '').replace(/\D/g, '')
+
+    if (!digits) return ''
+
+    if (digits.startsWith('0')) {
+      return `62${digits.slice(1)}`
+    }
+
+    if (digits.startsWith('62')) {
+      return digits
+    }
+
+    return digits
+  }
+
+  function buildInvoiceMessage(row) {
+    const link = row.invoice_link || ''
+    const clientName = row.client_name || 'Bapak/Ibu'
+    const invoiceNo = row.invoice_no || '-'
+    const periodStart = formatDate(row.period_start)
+    const periodEnd = formatDate(row.period_end)
+    const dueDate = formatDate(row.due_date)
+    const total = formatMoney(row.total_amount)
+
+    return [
+      `Halo ${clientName},`,
+      ``,
+      `Berikut kami kirimkan invoice tagihan TernakSukses:`,
+      ``,
+      `Invoice: ${invoiceNo}`,
+      `Periode: ${periodStart} s/d ${periodEnd}`,
+      `Total: ${total}`,
+      `Jatuh tempo: ${dueDate}`,
+      ``,
+      `Link pembayaran:`,
+      link,
+      ``,
+      `Silakan upload bukti transfer melalui link tersebut setelah pembayaran.`,
+      ``,
+      `Terima kasih.`,
+    ].join('\n')
+  }
+
+  async function copyInvoiceMessage(row) {
+    const text = buildInvoiceMessage(row)
+
+    await navigator.clipboard.writeText(text)
+
+    setMessage({
+      type: 'success',
+      text: `Pesan WhatsApp invoice ${row.invoice_no} berhasil dicopy.`,
+    })
+  }
+
+  function openWhatsAppInvoice(row) {
+    const phone = normalizeWhatsApp(row.whatsapp)
+    const text = buildInvoiceMessage(row)
+
+    if (!phone) {
+      setMessage({
+        type: 'error',
+        text: 'Nomor WhatsApp client kosong / tidak valid.',
+      })
+      return
+    }
+
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
+
+    window.open(url, '_blank')
+  }
+
+  async function markInvoiceSent(row) {
+    if (!row?.id) {
+      setMessage({
+        type: 'error',
+        text: 'Invoice ID tidak ditemukan.',
+      })
+      return
+    }
+
+    if (row.status === 'paid') {
+      setMessage({
+        type: 'error',
+        text: 'Invoice sudah PAID, tidak perlu mark sent.',
+      })
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Tandai invoice ${row.invoice_no} sebagai sudah dikirim?\n\nStatus akan menjadi unpaid dan sent_at akan diisi.`
+    )
+
+    if (!confirmed) return
+
+    setMessage(null)
+
+    try {
+      const { data, error } = await supabase.rpc(
+        'ts_admin_mark_billing_invoice_sent',
+        {
+          p_invoice_id: row.id,
+        }
+      )
+
+      if (error) throw error
+
+      if (data?.ok === false) {
+        throw new Error(data.error || 'Mark sent gagal.')
+      }
+
+      await backupToSheet('invoices', 'mark_invoice_sent', data)
+
+      setMessage({
+        type: 'success',
+        text:
+          data?.message ||
+          `Invoice ${row.invoice_no} berhasil ditandai sebagai sent/unpaid.`,
+      })
+
+      setRefreshKey((prev) => prev + 1)
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Gagal mark invoice as sent.',
+      })
+    }
+  }
+  
   const clientColumns = [
     {
       key: 'client_name',
@@ -646,7 +775,7 @@ export default function AdminBillingSetup({ session }) {
     {
       key: 'actions',
       label: 'Action',
-      width: 180,
+      width: 360,
       render: (row) => (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
@@ -662,9 +791,39 @@ export default function AdminBillingSetup({ session }) {
           >
             Rebuild
           </button>
+
+          <button
+            type="button"
+            style={styles.smallButton}
+            onClick={() => markInvoiceSent(row)}
+            disabled={row.status === 'paid'}
+            title={
+              row.status === 'paid'
+                ? 'Invoice paid tidak perlu mark sent'
+                : 'Tandai invoice sebagai terkirim'
+            }
+          >
+            Mark Sent
+          </button>
+
+          <button
+            type="button"
+            style={styles.smallButton}
+            onClick={() => copyInvoiceMessage(row)}
+          >
+            Copy WA
+          </button>
+
+          <button
+            type="button"
+            style={styles.smallButton}
+            onClick={() => openWhatsAppInvoice(row)}
+          >
+            Open WA
+          </button>
         </div>
       ),
-    },  
+    },
   ]
 
   const styles = {
