@@ -145,180 +145,32 @@ export default function AdminBillingSetup({ session }) {
     })
   }
 
-  function buildBackupUrl(table, action, payload) {
-    const url = backupUrl.trim()
-    const secret = backupSecret.trim()
-
-    if (!url || !secret) {
-      throw new Error('Backup URL/secret belum diisi.')
-    }
-
-    const params = new URLSearchParams()
-    params.set('secret', secret)
-    params.set('table', table)
-    params.set('action', action)
-    params.set('payload', JSON.stringify(payload || {}))
-
-    return `${url}?${params.toString()}`
-  }
-
-  function wait(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms))
-  }
-
   async function backupToSheet(table, action, payload) {
-    const targetUrl = buildBackupUrl(table, action, payload)
-
-    const popup = window.open(targetUrl, '_blank')
-
-    if (!popup) {
-      throw new Error(
-        'Tab backup gagal dibuka. Izinkan pop-up untuk ts-billing-portal.vercel.app.'
-      )
-    }
+    console.log('Google Sheet backup skipped for now:', {
+      table,
+      action,
+      payload,
+    })
 
     return {
       ok: true,
-      url: targetUrl,
+      skipped: true,
+      reason: 'Google Sheet browser backup disabled sementara.',
     }
   }
 
   async function testBackup() {
-    setMessage(null)
-
-    try {
-      await backupToSheet('logs', 'test_backup_from_billing_setup', {
-        message: 'Test backup from TS Billing Setup',
-        source: 'Billing Setup Page',
-        tested_at: new Date().toISOString(),
-      })
-
-      setMessage({
-        type: 'success',
-        text: 'Tab backup terbuka. Jika hasil ok:true, refresh Google Sheet tab logs.',
-      })
-    } catch (err) {
-      setMessage({
-        type: 'error',
-        text: err.message || 'Gagal test backup Google Sheet.',
-      })
-    }
-  }
-  
-  async function backupRowsToSheet(rows) {
-    const popupName = `ts_billing_backup_batch_${Date.now()}`
-    const popup = window.open('about:blank', popupName)
-
-    if (!popup) {
-      throw new Error(
-        'Tab backup gagal dibuka. Izinkan pop-up untuk ts-billing-portal.vercel.app.'
-      )
-    }
-
-    popup.document.write(`
-      <html>
-        <head>
-          <title>TS Billing Backup</title>
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              background: #0f172a;
-              color: #e5e7eb;
-              padding: 24px;
-            }
-            .box {
-              max-width: 620px;
-              border: 1px solid rgba(148,163,184,.3);
-              border-radius: 16px;
-              padding: 20px;
-              background: rgba(15,23,42,.92);
-            }
-            h2 { margin-top: 0; color: #fbbf24; }
-            code { color: #86efac; }
-          </style>
-        </head>
-        <body>
-          <div class="box">
-            <h2>Menyiapkan backup batch...</h2>
-            <p>Total row: <code>${rows.length}</code></p>
-            <p>Jangan tutup tab ini sampai proses selesai.</p>
-          </div>
-        </body>
-      </html>
-    `)
-    popup.document.close()
-
-    for (let index = 0; index < rows.length; index += 1) {
-      const row = rows[index]
-      const targetUrl = buildBackupUrl(row.table, row.action, row.payload)
-
-      popup.location.href = targetUrl
-
-      await wait(1300)
-    }
-
-    const finishUrl = buildBackupUrl('logs', 'backup_batch_done', {
-      total_rows: rows.length,
-      finished_at: new Date().toISOString(),
-      source: 'Billing Setup Page',
+    setMessage({
+      type: 'error',
+      text: 'Backup Google Sheet sementara dinonaktifkan agar halaman Billing Setup stabil. Data utama tetap aman di Supabase.',
     })
-
-    popup.location.href = finishUrl
-
-    return {
-      ok: true,
-      total_rows: rows.length,
-    }
   }
-  
+
   async function backupAllCurrentData() {
-    setMessage(null)
-
-    const confirmed = window.confirm(
-      `Backup semua data current ke Google Sheet?\n\nClients: ${clients.length}\nServices: ${services.length}\nInvoices: ${invoices.length}`
-    )
-
-    if (!confirmed) return
-
-    try {
-      const rows = []
-
-      for (const client of clients) {
-        rows.push({
-          table: 'clients',
-          action: 'backup_existing_client',
-          payload: client,
-        })
-      }
-
-      for (const service of services) {
-        rows.push({
-          table: 'services',
-          action: 'backup_existing_service',
-          payload: service,
-        })
-      }
-
-      for (const invoice of invoices) {
-        rows.push({
-          table: 'invoices',
-          action: 'backup_existing_invoice',
-          payload: invoice,
-        })
-      }
-
-      await backupRowsToSheet(rows)
-
-      setMessage({
-        type: 'success',
-        text: `Backup batch berjalan: ${rows.length} row. Tunggu 15-20 detik lalu refresh Google Sheet.`,
-      })
-    } catch (err) {
-      setMessage({
-        type: 'error',
-        text: err.message || 'Gagal backup semua data.',
-      })
-    }
+    setMessage({
+      type: 'error',
+      text: 'Backup Google Sheet sementara dinonaktifkan. Kita lanjutkan setelah Billing Setup dan invoice stabil.',
+    })
   }
 
   function handleClientChange(field, value) {
@@ -334,7 +186,7 @@ export default function AdminBillingSetup({ session }) {
       [field]: value,
     }))
   }
-
+  
   async function saveClient(event) {
     event.preventDefault()
 
