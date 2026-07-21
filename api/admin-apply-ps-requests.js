@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
+const HANDLER_VERSION = 'admin-apply-ps-requests-v2-get-post-cron'
+
 const supabaseUrl = process.env.VITE_SUPABASE_URL
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -7,7 +9,10 @@ const billingAdminEmail = process.env.BILLING_ADMIN_EMAIL
 const cronSecret = process.env.CRON_SECRET
 
 function json(res, status, data) {
-  res.status(status).json(data)
+  res.status(status).json({
+    ...data,
+    handler_version: HANDLER_VERSION,
+  })
 }
 
 function getBearerToken(req) {
@@ -30,6 +35,33 @@ function parseBody(req) {
   return req.body
 }
 
+function normalizeRpcResult(result) {
+  if (!result) {
+    return {
+      ok: true,
+      applied_count: 0,
+      skipped_count: 0,
+      applied: [],
+      skipped: [],
+    }
+  }
+
+  if (typeof result === 'string') {
+    try {
+      return JSON.parse(result)
+    } catch {
+      return {
+        ok: true,
+        applied_count: 0,
+        skipped_count: 0,
+        raw: result,
+      }
+    }
+  }
+
+  return result
+}
+
 async function runApply(adminClient, {
   actorUserId = null,
   requestId = null,
@@ -37,20 +69,24 @@ async function runApply(adminClient, {
   limit = 50,
   source = 'manual',
 }) {
-  const { data: result, error: rpcError } =
-    await adminClient.rpc('ts_apply_due_ps_setting_changes', {
+  const { data, error } = await adminClient.rpc(
+    'ts_apply_due_ps_setting_changes',
+    {
       p_actor_user_id: actorUserId,
       p_request_id: requestId,
       p_force: force,
       p_limit: limit,
-    })
+    }
+  )
 
-  if (rpcError) {
-    throw rpcError
+  if (error) {
+    throw error
   }
 
-  const appliedCount = result?.applied_count || 0
-  const skippedCount = result?.skipped_count || 0
+  const result = normalizeRpcResult(data)
+
+  const appliedCount = Number(result?.applied_count || 0)
+  const skippedCount = Number(result?.skipped_count || 0)
 
   if (source === 'cron') {
     await adminClient
@@ -80,6 +116,7 @@ async function runApply(adminClient, {
         gmt7_time: new Date().toISOString(),
         metadata: {
           source: 'admin-apply-ps-requests-cron',
+          handler_version: HANDLER_VERSION,
           result,
         },
       })
@@ -90,6 +127,8 @@ async function runApply(adminClient, {
 
 export default async function handler(req, res) {
   try {
+    res.setHeader('Allow', 'GET, POST')
+
     if (!supabaseUrl || !supabaseServiceKey) {
       return json(res, 500, {
         ok: false,
@@ -101,7 +140,7 @@ export default async function handler(req, res) {
 
     // ============================================================
     // GET = Vercel Cron
-    // Cron memakai Authorization: Bearer CRON_SECRET
+    // Browser biasa harus dapat 401 Unauthorized, bukan 405.
     // ============================================================
     if (req.method === 'GET') {
       const authHeader = req.headers.authorization || ''
@@ -110,6 +149,7 @@ export default async function handler(req, res) {
         return json(res, 401, {
           ok: false,
           error: 'Unauthorized cron request',
+          method: req.method,
         })
       }
 
@@ -121,7 +161,7 @@ export default async function handler(req, res) {
         source: 'cron',
       })
 
-      const appliedCount = result?.applied_count || 0
+      const appliedCount = Number(result?.applied_count || 0)
 
       return json(res, 200, {
         ok: true,
@@ -135,130 +175,131 @@ export default async function handler(req, res) {
 
     // ============================================================
     // POST = Manual Admin Button
-    // Dipakai tombol Apply Due Requests / Force Apply di UI
+    // Dipakai tombol Apply Due Requests / Force Apply di UI.
     // ============================================================
-    if (req.method !== 'POST') {
-      return json(res, 405, {
-        ok: false,
-        error: 'Method not allowed',
-      })
-    }
-
-    if (!supabaseAnonKey) {
-      return json(res, 500, {
-        ok: false,
-        error: 'Missing Supabase anon key',
-      })
-    }
-
-    const token = getBearerToken(req)
-
-    if (!token) {
-      return json(res, 401, {
-        ok: false,
-        error: 'Missing authorization token',
-      })
-    }
-
-    const body = parseBody(req)
-
-    const requestId = body.requestId || null
-    const force = body.force === true
-    const limitRaw = Number(body.limit || 50)
-    const limit = Number.isFinite(limitRaw)
-      ? Math.min(Math.max(limitRaw, 1), 100)
-      : 50
-
-    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
-    })
-
-    const { data: userData, error: userError } =
-      await userClient.auth.getUser(token)
-
-    if (userError || !userData?.user) {
-      return json(res, 401, {
-        ok: false,
-        error: 'Invalid session',
-      })
-    }
-
-    const user = userData.user
-    const userEmail = user.email || ''
-
-    const { data: partnerProfile, error: partnerError } =
-      await adminClient
-        .from('ts_partner_profiles')
-        .select('id, role, display_name, auth_user_id, status')
-        .eq('auth_user_id', user.id)
-        .maybeSingle()
-
-    if (partnerError) {
-      return json(res, 500, {
-        ok: false,
-        error: partnerError.message,
-      })
-    }
-
-    const isAdminEmail =
-      billingAdminEmail &&
-      userEmail.toLowerCase() === billingAdminEmail.toLowerCase()
-
-    const isAdminPartner =
-      partnerProfile &&
-      partnerProfile.role === 'admin' &&
-      partnerProfile.status === 'active'
-
-    if (!isAdminEmail && !isAdminPartner) {
-      return json(res, 403, {
-        ok: false,
-        error:
-          'Admin TS only. Apply PS Request masih dikunci untuk Admin TS.',
-      })
-    }
-
-    if (partnerProfile?.id) {
-      const { data: permission, error: permissionError } =
-        await adminClient
-          .from('ts_partner_permissions')
-          .select('can_apply_ps_change')
-          .eq('partner_id', partnerProfile.id)
-          .maybeSingle()
-
-      if (permissionError) {
+    if (req.method === 'POST') {
+      if (!supabaseAnonKey) {
         return json(res, 500, {
           ok: false,
-          error: permissionError.message,
+          error: 'Missing Supabase anon key',
         })
       }
 
-      if (permission && permission.can_apply_ps_change === false) {
+      const token = getBearerToken(req)
+
+      if (!token) {
+        return json(res, 401, {
+          ok: false,
+          error: 'Missing authorization token',
+        })
+      }
+
+      const body = parseBody(req)
+
+      const requestId = body.requestId || null
+      const force = body.force === true
+      const limitRaw = Number(body.limit || 50)
+      const limit = Number.isFinite(limitRaw)
+        ? Math.min(Math.max(limitRaw, 1), 100)
+        : 50
+
+      const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      })
+
+      const { data: userData, error: userError } =
+        await userClient.auth.getUser(token)
+
+      if (userError || !userData?.user) {
+        return json(res, 401, {
+          ok: false,
+          error: 'Invalid session',
+        })
+      }
+
+      const user = userData.user
+      const userEmail = user.email || ''
+
+      const { data: partnerProfile, error: partnerError } =
+        await adminClient
+          .from('ts_partner_profiles')
+          .select('id, role, display_name, auth_user_id, status')
+          .eq('auth_user_id', user.id)
+          .maybeSingle()
+
+      if (partnerError) {
+        return json(res, 500, {
+          ok: false,
+          error: partnerError.message,
+        })
+      }
+
+      const isAdminEmail =
+        billingAdminEmail &&
+        userEmail.toLowerCase() === billingAdminEmail.toLowerCase()
+
+      const isAdminPartner =
+        partnerProfile &&
+        partnerProfile.role === 'admin' &&
+        partnerProfile.status === 'active'
+
+      if (!isAdminEmail && !isAdminPartner) {
         return json(res, 403, {
           ok: false,
-          error: 'Permission apply PS change belum aktif untuk user ini.',
+          error:
+            'Admin TS only. Apply PS Request masih dikunci untuk Admin TS.',
         })
       }
+
+      if (partnerProfile?.id) {
+        const { data: permission, error: permissionError } =
+          await adminClient
+            .from('ts_partner_permissions')
+            .select('can_apply_ps_change')
+            .eq('partner_id', partnerProfile.id)
+            .maybeSingle()
+
+        if (permissionError) {
+          return json(res, 500, {
+            ok: false,
+            error: permissionError.message,
+          })
+        }
+
+        if (permission && permission.can_apply_ps_change === false) {
+          return json(res, 403, {
+            ok: false,
+            error: 'Permission apply PS change belum aktif untuk user ini.',
+          })
+        }
+      }
+
+      const result = await runApply(adminClient, {
+        actorUserId: user.id,
+        requestId,
+        force,
+        limit,
+        source: 'manual',
+      })
+
+      return json(res, 200, {
+        ok: true,
+        result,
+        message:
+          Number(result?.applied_count || 0) > 0
+            ? `${result.applied_count} PS request berhasil diterapkan.`
+            : 'Tidak ada PS request yang perlu diterapkan.',
+      })
     }
 
-    const result = await runApply(adminClient, {
-      actorUserId: user.id,
-      requestId,
-      force,
-      limit,
-      source: 'manual',
-    })
-
-    return json(res, 200, {
-      ok: true,
-      result,
-      message:
-        result?.applied_count > 0
-          ? `${result.applied_count} PS request berhasil diterapkan.`
-          : 'Tidak ada PS request yang perlu diterapkan.',
+    return json(res, 405, {
+      ok: false,
+      error: 'Method not allowed',
+      method: req.method,
     })
   } catch (error) {
     return json(res, 500, {
