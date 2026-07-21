@@ -219,14 +219,15 @@ export default function AdminBillingSetup({ session }) {
     setMessage(null)
 
     try {
-      await backupToSheet('logs', 'test_backup', {
+      await backupToSheet('logs', 'test_backup_from_billing_setup', {
         message: 'Test backup from TS Billing Setup',
+        source: 'Billing Setup Page',
         tested_at: new Date().toISOString(),
       })
 
       setMessage({
         type: 'success',
-        text: 'Test backup dikirim ke Google Sheet. Cek tab logs.',
+        text: 'Test backup dikirim. Tunggu 3 detik lalu refresh Google Sheet tab logs.',
       })
     } catch (err) {
       setMessage({
@@ -236,25 +237,44 @@ export default function AdminBillingSetup({ session }) {
     }
   }
 
-  async function backupAllCurrentData() {
+   async function backupAllCurrentData() {
     setMessage(null)
 
+    const confirmed = window.confirm(
+      `Backup semua data current ke Google Sheet?\n\nClients: ${clients.length}\nServices: ${services.length}\nInvoices: ${invoices.length}`
+    )
+
+    if (!confirmed) return
+
     try {
+      let sentCount = 0
+
       for (const client of clients) {
         await backupToSheet('clients', 'backup_existing_client', client)
+        sentCount += 1
       }
 
       for (const service of services) {
         await backupToSheet('services', 'backup_existing_service', service)
+        sentCount += 1
       }
 
       for (const invoice of invoices) {
         await backupToSheet('invoices', 'backup_existing_invoice', invoice)
+        sentCount += 1
       }
+
+      await backupToSheet('logs', 'backup_all_current_data_done', {
+        clients_count: clients.length,
+        services_count: services.length,
+        invoices_count: invoices.length,
+        total_sent: sentCount,
+        finished_at: new Date().toISOString(),
+      })
 
       setMessage({
         type: 'success',
-        text: 'Backup semua data current dikirim ke Google Sheet.',
+        text: `Backup dikirim: ${sentCount} row. Tunggu 5-10 detik lalu refresh Google Sheet.`,
       })
     } catch (err) {
       setMessage({
