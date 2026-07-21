@@ -145,7 +145,7 @@ export default function AdminBillingSetup({ session }) {
     })
   }
 
-  async function backupToSheet(table, action, payload) {
+    async function backupToSheet(table, action, payload) {
     const url = backupUrl.trim()
     const secret = backupSecret.trim()
 
@@ -157,23 +157,62 @@ export default function AdminBillingSetup({ session }) {
       }
     }
 
-    await fetch(url, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8',
-      },
-      body: JSON.stringify({
-        secret,
-        table,
-        action,
-        payload,
-      }),
-    })
+    return new Promise((resolve) => {
+      const iframeName = `ts_backup_iframe_${Date.now()}_${Math.random()
+        .toString(16)
+        .slice(2)}`
 
-    return {
-      ok: true,
-    }
+      const iframe = document.createElement('iframe')
+      iframe.name = iframeName
+      iframe.style.display = 'none'
+
+      const form = document.createElement('form')
+      form.method = 'POST'
+      form.action = url
+      form.target = iframeName
+      form.style.display = 'none'
+
+      function addInput(name, value) {
+        const input = document.createElement('input')
+        input.type = 'hidden'
+        input.name = name
+        input.value = value
+        form.appendChild(input)
+      }
+
+      addInput('secret', secret)
+      addInput('table', table)
+      addInput('action', action)
+      addInput('payload', JSON.stringify(payload || {}))
+
+      let finished = false
+
+      function cleanup() {
+        if (finished) return
+        finished = true
+
+        setTimeout(() => {
+          try {
+            document.body.removeChild(form)
+          } catch {}
+
+          try {
+            document.body.removeChild(iframe)
+          } catch {}
+        }, 300)
+
+        resolve({ ok: true })
+      }
+
+      iframe.onload = cleanup
+
+      document.body.appendChild(iframe)
+      document.body.appendChild(form)
+
+      form.submit()
+
+      setTimeout(cleanup, 2500)
+    })
   }
 
   async function testBackup() {
