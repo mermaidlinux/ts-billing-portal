@@ -16,7 +16,7 @@
   ],
   "crons": [
     {
-      "path": "/api/cron-apply-ps-requests",
+      "path": "/api/admin-apply-ps-requests",
       "schedule": "10 17 * * *"
     }
   ]
