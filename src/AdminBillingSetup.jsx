@@ -85,6 +85,7 @@ export default function AdminBillingSetup({ session }) {
   const [savingClient, setSavingClient] = useState(false)
   const [savingService, setSavingService] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [bulkGenerating, setBulkGenerating] = useState(false)
   const [sendingInvoiceId, setSendingInvoiceId] = useState('')
   const [message, setMessage] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
