@@ -153,26 +153,65 @@ export default function AdminBillingSetup({ session }) {
       throw new Error('Backup URL/secret belum diisi.')
     }
 
-    return new Promise((resolve) => {
-      const targetName = openNewTab
-        ? '_blank'
-        : `ts_backup_iframe_${Date.now()}_${Math.random()
-            .toString(16)
-            .slice(2)}`
+    return new Promise((resolve, reject) => {
+      const targetName = `ts_billing_backup_${Date.now()}_${Math.random()
+        .toString(16)
+        .slice(2)}`
 
-      let iframe = null
+      let popup = null
 
-      if (!openNewTab) {
-        iframe = document.createElement('iframe')
-        iframe.name = targetName
-        iframe.style.display = 'none'
-        document.body.appendChild(iframe)
+      if (openNewTab) {
+        popup = window.open('about:blank', targetName)
+
+        if (!popup) {
+          reject(
+            new Error(
+              'Tab backup gagal dibuka. Izinkan pop-up untuk ts-billing-portal.vercel.app.'
+            )
+          )
+          return
+        }
+
+        popup.document.write(`
+          <html>
+            <head>
+              <title>TS Billing Backup</title>
+              <style>
+                body {
+                  font-family: Arial, sans-serif;
+                  background: #0f172a;
+                  color: #e5e7eb;
+                  padding: 24px;
+                }
+                .box {
+                  max-width: 520px;
+                  border: 1px solid rgba(148,163,184,.3);
+                  border-radius: 16px;
+                  padding: 20px;
+                  background: rgba(15,23,42,.92);
+                }
+                h2 { margin-top: 0; color: #fbbf24; }
+                code { color: #86efac; }
+              </style>
+            </head>
+            <body>
+              <div class="box">
+                <h2>Mengirim backup...</h2>
+                <p>Target table: <code>${table}</code></p>
+                <p>Action: <code>${action}</code></p>
+                <p>Tunggu hasil dari Google Apps Script.</p>
+              </div>
+            </body>
+          </html>
+        `)
+        popup.document.close()
       }
 
       const form = document.createElement('form')
       form.method = 'POST'
       form.action = url
-      form.target = targetName
+      form.target = openNewTab ? targetName : '_self'
+      form.enctype = 'application/x-www-form-urlencoded'
       form.style.display = 'none'
 
       function addInput(name, value) {
@@ -196,14 +235,11 @@ export default function AdminBillingSetup({ session }) {
           document.body.removeChild(form)
         } catch {}
 
-        if (iframe) {
-          try {
-            document.body.removeChild(iframe)
-          } catch {}
-        }
-
-        resolve({ ok: true })
-      }, 1200)
+        resolve({
+          ok: true,
+          opened_tab: openNewTab,
+        })
+      }, 1500)
     })
   }
 
@@ -223,7 +259,7 @@ export default function AdminBillingSetup({ session }) {
 
       setMessage({
         type: 'success',
-        text: 'Tab Apps Script akan terbuka. Jika hasilnya ok:true, refresh Google Sheet tab logs.',
+        text: 'Tab backup sudah dibuka. Cek tab baru, lalu refresh Google Sheet tab logs.',
       })
     } catch (err) {
       setMessage({
