@@ -20,6 +20,12 @@ const MENU_ITEMS = [
     description: 'Tagihan & pembayaran',
   },
   {
+  key: 'billing_setup',
+  label: 'Billing Setup',
+  icon: '🧾',
+  description: 'Client, service, invoice',
+  },
+  {
     key: 'settings',
     label: 'Setting',
     icon: '⚙️',
