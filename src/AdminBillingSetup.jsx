@@ -578,6 +578,61 @@ export default function AdminBillingSetup({ session }) {
       })
     }
   }
+
+  async function deleteDraftInvoice(row) {
+    if (!row?.id) {
+      setMessage({
+        type: 'error',
+        text: 'Invoice ID tidak ditemukan.',
+      })
+      return
+    }
+
+    if (row.status !== 'draft') {
+      setMessage({
+        type: 'error',
+        text: 'Hanya invoice status draft yang boleh dihapus.',
+      })
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Hapus invoice draft ${row.invoice_no}?\n\nIni hanya untuk invoice salah generate/testing.\nInvoice item juga akan dihapus.\n\nLanjut hapus?`
+    )
+
+    if (!confirmed) return
+
+    setMessage(null)
+
+    try {
+      const { data, error } = await supabase.rpc(
+        'ts_admin_delete_draft_billing_invoice',
+        {
+          p_invoice_id: row.id,
+        }
+      )
+
+      if (error) throw error
+
+      if (data?.ok === false) {
+        throw new Error(data.error || 'Gagal hapus invoice draft.')
+      }
+
+      setMessage({
+        type: 'success',
+        text:
+          data?.message ||
+          `Invoice draft ${row.invoice_no} berhasil dihapus.`,
+      })
+
+      setRefreshKey((prev) => prev + 1)
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Gagal hapus invoice draft.',
+      })
+    }
+  }
   
   function editClient(client) {
     setClientForm({
@@ -1013,7 +1068,7 @@ export default function AdminBillingSetup({ session }) {
     {
         key: 'actions',
         label: 'Action',
-        width: 520,
+        width: 650,
         render: (row) => (
           <div
             style={{
@@ -1038,6 +1093,20 @@ export default function AdminBillingSetup({ session }) {
             Rebuild
           </button>
 
+          <button
+            type="button"
+            style={styles.smallDangerButton || styles.smallButton}
+            onClick={() => deleteDraftInvoice(row)}
+            disabled={row.status !== 'draft'}
+            title={
+              row.status === 'draft'
+                ? 'Hapus invoice draft salah generate'
+                : 'Hanya draft yang boleh dihapus'
+            }
+          >
+            Delete Draft
+          </button>
+            
           <button
             type="button"
             style={styles.smallButton}
@@ -1142,6 +1211,16 @@ export default function AdminBillingSetup({ session }) {
       border: '1px solid rgba(148, 163, 184, 0.24)',
       background: 'rgba(15, 23, 42, 0.72)',
       color: '#e5e7eb',
+      padding: '7px 10px',
+      borderRadius: 10,
+      cursor: 'pointer',
+      fontWeight: 800,
+      fontSize: 12,
+    },
+    smallDangerButton: {
+      border: '1px solid rgba(239, 68, 68, 0.35)',
+      background: 'rgba(239, 68, 68, 0.10)',
+      color: '#fecaca',
       padding: '7px 10px',
       borderRadius: 10,
       cursor: 'pointer',
