@@ -1687,13 +1687,18 @@ export default function AdminBillingSetup({ session }) {
 
       <section style={styles.section}>
         <h3 style={styles.sectionTitle}>Generate Invoice Bulanan</h3>
+
         <p style={styles.sectionSub}>
           Pilih bulan invoice dulu supaya sistem tidak loncat ke bulan berikutnya.
         </p>
 
+        <div style={styles.grid}>
           <label style={styles.inputLabel}>
             Billing Month
-            <span style={styles.inputSub}>Pilih bulan invoice yang mau dibuat.</span>
+            <span style={styles.inputSub}>
+              Pilih bulan invoice yang mau dibuat.
+            </span>
+
             <select
               style={styles.input}
               value={billingMonth}
@@ -1707,16 +1712,21 @@ export default function AdminBillingSetup({ session }) {
               ))}
             </select>
           </label>
+
           <label style={styles.inputLabel}>
             Client
-            <span style={styles.inputSub}>Pilih client yang mau dibuat invoice.</span>
+            <span style={styles.inputSub}>
+              Pilih client yang mau dibuat invoice.
+            </span>
+
             <select
               style={styles.input}
               value={generateClientId}
               onChange={(event) => setGenerateClientId(event.target.value)}
-              disabled={generating}
+              disabled={generating || bulkGenerating}
             >
               <option value="">Pilih client</option>
+
               {clients.map((client) => (
                 <option key={client.id} value={client.id}>
                   {client.client_name}
@@ -1733,9 +1743,9 @@ export default function AdminBillingSetup({ session }) {
             onClick={generateNextInvoice}
             disabled={generating || bulkGenerating}
           >
-            {generating ? 'Generating...' : 'Generate Next Invoice'}
+            {generating ? 'Generating...' : 'Generate Selected Client'}
           </button>
-        
+
           <button
             type="button"
             style={styles.button}
