@@ -65,6 +65,21 @@ const blankServiceForm = {
   notes: '',
 }
 
+function getDefaultBillingMonth() {
+  const date = new Date()
+  date.setMonth(date.getMonth() + 1)
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+
+  return `${year}-${month}`
+}
+
+function monthToPeriodStart(value) {
+  if (!value || !/^\d{4}-\d{2}$/.test(value)) return null
+  return `${value}-01`
+}
+
 export default function AdminBillingSetup({ session }) {
   const [clients, setClients] = useState([])
   const [services, setServices] = useState([])
@@ -73,6 +88,7 @@ export default function AdminBillingSetup({ session }) {
   const [clientForm, setClientForm] = useState(blankClientForm)
   const [serviceForm, setServiceForm] = useState(blankServiceForm)
   const [generateClientId, setGenerateClientId] = useState('')
+  const [billingMonth, setBillingMonth] = useState(getDefaultBillingMonth)
 
   const [backupUrl, setBackupUrl] = useState(() =>
     localStorage.getItem('ts_billing_backup_url') || ''
@@ -318,8 +334,18 @@ export default function AdminBillingSetup({ session }) {
       return
     }
 
+    const periodStart = monthToPeriodStart(billingMonth)
+
+    if (!periodStart) {
+      setMessage({
+        type: 'error',
+        text: 'Pilih bulan invoice dulu.',
+      })
+      return
+    }
+
     const confirmed = window.confirm(
-      'Generate invoice periode berikutnya dari semua service aktif client ini?\n\nSistem anti dobel. Kalau invoice periode itu sudah ada, tidak akan dibuat ulang.'
+      `Generate invoice bulan ${billingMonth} untuk client ini?\n\nSistem anti dobel. Kalau invoice bulan ini sudah ada, tidak akan dibuat ulang.`
     )
 
     if (!confirmed) return
@@ -329,15 +355,20 @@ export default function AdminBillingSetup({ session }) {
 
     try {
       const { data, error } = await supabase.rpc(
-        'ts_admin_generate_next_billing_invoice',
+        'ts_admin_generate_billing_invoice_for_month',
         {
           p_client_id: generateClientId,
+          p_period_start: periodStart,
         }
       )
 
       if (error) throw error
 
-      await backupToSheet('invoices', 'generate_next_invoice', data)
+      if (data?.ok === false) {
+        throw new Error(data.error || 'Generate invoice gagal.')
+      }
+
+      await backupToSheet('invoices', 'generate_invoice_selected_month', data)
 
       setMessage({
         type: 'success',
@@ -358,6 +389,16 @@ export default function AdminBillingSetup({ session }) {
   }
 
   async function generateAllNextInvoices() {
+    const periodStart = monthToPeriodStart(billingMonth)
+
+    if (!periodStart) {
+      setMessage({
+        type: 'error',
+        text: 'Pilih bulan invoice dulu.',
+      })
+      return
+    }
+
     const activeServiceClientIds = [
       ...new Set(
         services
@@ -383,7 +424,7 @@ export default function AdminBillingSetup({ session }) {
     }
 
     const confirmed = window.confirm(
-      `Generate invoice berikutnya untuk semua client aktif?\n\nClient diproses: ${targetClients.length}\n\nSistem anti dobel. Jika invoice periode berikutnya sudah ada, tidak akan dibuat ulang.`
+      `Generate invoice bulan ${billingMonth} untuk semua client aktif?\n\nClient diproses: ${targetClients.length}\n\nSistem anti dobel. Jika invoice bulan ini sudah ada, tidak akan dibuat ulang.`
     )
 
     if (!confirmed) return
@@ -400,9 +441,10 @@ export default function AdminBillingSetup({ session }) {
       for (const client of targetClients) {
         try {
           const { data, error } = await supabase.rpc(
-            'ts_admin_generate_next_billing_invoice',
+            'ts_admin_generate_billing_invoice_for_month',
             {
               p_client_id: client.id,
+              p_period_start: periodStart,
             }
           )
 
@@ -420,8 +462,9 @@ export default function AdminBillingSetup({ session }) {
             createdCount += 1
           }
 
-          await backupToSheet('invoices', 'generate_next_invoice_bulk', {
+          await backupToSheet('invoices', 'generate_invoice_selected_month_bulk', {
             client_name: client.client_name,
+            billing_month: billingMonth,
             result: data,
           })
         } catch (err) {
@@ -436,8 +479,8 @@ export default function AdminBillingSetup({ session }) {
         type: failedCount > 0 ? 'error' : 'success',
         text:
           failedCount > 0
-            ? `Generate selesai dengan error. Baru dibuat: ${createdCount}, sudah ada: ${existingCount}, gagal: ${failedCount}. ${failedItems.join(' | ')}`
-            : `Generate selesai. Baru dibuat: ${createdCount}, sudah ada: ${existingCount}, gagal: ${failedCount}.`,
+            ? `Generate bulan ${billingMonth} selesai dengan error. Baru dibuat: ${createdCount}, sudah ada: ${existingCount}, gagal: ${failedCount}. ${failedItems.join(' | ')}`
+            : `Generate bulan ${billingMonth} selesai. Baru dibuat: ${createdCount}, sudah ada: ${existingCount}, gagal: ${failedCount}.`,
       })
 
       setRefreshKey((prev) => prev + 1)
@@ -937,9 +980,17 @@ export default function AdminBillingSetup({ session }) {
     {
       key: 'actions',
       label: 'Action',
-      width: 360,
+      width: 520,
       render: (row) => (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div
+          style={{
+            display: 'flex',
+            gap: 6,
+            flexWrap: 'nowrap',
+            alignItems: 'center',
+            whiteSpace: 'nowrap',
+          }}
+        >
           <button
             type="button"
             style={styles.smallButton}
@@ -1602,12 +1653,23 @@ export default function AdminBillingSetup({ session }) {
       </section>
 
       <section style={styles.section}>
-        <h3 style={styles.sectionTitle}>Generate Invoice Berikutnya</h3>
+        <h3 style={styles.sectionTitle}>Generate Invoice Bulanan</h3>
         <p style={styles.sectionSub}>
-          Generate invoice dari semua service aktif client. Sistem anti dobel.
+          Pilih bulan invoice dulu supaya sistem tidak loncat ke bulan berikutnya.
         </p>
 
         <div style={styles.grid}>
+          <label style={styles.inputLabel}>
+            Billing Month
+            <span style={styles.inputSub}>Pilih bulan invoice yang mau dibuat.</span>
+            <input
+              style={styles.input}
+              type="month"
+              value={billingMonth}
+              onChange={(event) => setBillingMonth(event.target.value)}
+              disabled={generating || bulkGenerating}
+            />
+          </label>
           <label style={styles.inputLabel}>
             Client
             <span style={styles.inputSub}>Pilih client yang mau dibuat invoice.</span>
