@@ -80,6 +80,28 @@ function monthToPeriodStart(value) {
   return `${value}-01`
 }
 
+function getBillingMonthOptions() {
+  const options = []
+  const now = new Date()
+
+  for (let offset = -2; offset <= 6; offset += 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() + offset, 1)
+    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+
+    const label = date.toLocaleDateString('id-ID', {
+      month: 'long',
+      year: 'numeric',
+    })
+
+    options.push({
+      value,
+      label,
+    })
+  }
+
+  return options
+}
+
 export default function AdminBillingSetup({ session }) {
   const [clients, setClients] = useState([])
   const [services, setServices] = useState([])
@@ -89,6 +111,7 @@ export default function AdminBillingSetup({ session }) {
   const [serviceForm, setServiceForm] = useState(blankServiceForm)
   const [generateClientId, setGenerateClientId] = useState('')
   const [billingMonth, setBillingMonth] = useState(getDefaultBillingMonth)
+  const billingMonthOptions = useMemo(() => getBillingMonthOptions(), [])
 
   const [backupUrl, setBackupUrl] = useState(() =>
     localStorage.getItem('ts_billing_backup_url') || ''
@@ -112,6 +135,14 @@ export default function AdminBillingSetup({ session }) {
     return clients.filter((client) => client.status === 'active')
   }, [clients])
 
+const filteredInvoices = useMemo(() => {
+  if (!billingMonth) return invoices
+
+  return invoices.filter((invoice) => {
+    return String(invoice.period_start || '').slice(0, 7) === billingMonth
+  })
+}, [invoices, billingMonth])
+  
   useEffect(() => {
     if (!serviceForm.client_id && activeClients[0]?.id) {
       setServiceForm((current) => ({
@@ -978,19 +1009,19 @@ export default function AdminBillingSetup({ session }) {
       ),
     },
     {
-      key: 'actions',
-      label: 'Action',
-      width: 520,
-      render: (row) => (
-        <div
-          style={{
-            display: 'flex',
-            gap: 6,
-            flexWrap: 'nowrap',
-            alignItems: 'center',
-            whiteSpace: 'nowrap',
-          }}
-        >
+        key: 'actions',
+        label: 'Action',
+        width: 520,
+        render: (row) => (
+          <div
+            style={{
+              display: 'flex',
+              gap: 6,
+              flexWrap: 'nowrap',
+              alignItems: 'center',
+              whiteSpace: 'nowrap',
+            }}
+          >
           <button
             type="button"
             style={styles.smallButton}
@@ -1658,17 +1689,21 @@ export default function AdminBillingSetup({ session }) {
           Pilih bulan invoice dulu supaya sistem tidak loncat ke bulan berikutnya.
         </p>
 
-        <div style={styles.grid}>
           <label style={styles.inputLabel}>
             Billing Month
             <span style={styles.inputSub}>Pilih bulan invoice yang mau dibuat.</span>
-            <input
+            <select
               style={styles.input}
-              type="month"
               value={billingMonth}
               onChange={(event) => setBillingMonth(event.target.value)}
               disabled={generating || bulkGenerating}
-            />
+            >
+              {billingMonthOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
           <label style={styles.inputLabel}>
             Client
@@ -1731,13 +1766,13 @@ export default function AdminBillingSetup({ session }) {
       />
 
       <AdjustableTable
-        title="Invoice List"
-        subtitle="Daftar invoice dan link pembayaran."
+        title={`Invoice List — ${billingMonth}`}
+        subtitle="Daftar invoice sesuai Billing Month yang dipilih."
         storageKey="ts_billing_invoices_table"
         columns={invoiceColumns}
-        rows={invoices}
+        rows={filteredInvoices}
         loading={loading}
-        emptyText="Belum ada invoice."
+        emptyText="Belum ada invoice untuk bulan ini."
       />
     </div>
   )
