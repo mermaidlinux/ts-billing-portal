@@ -111,6 +111,7 @@ export default function AdminBillingSetup({ session }) {
   const [serviceForm, setServiceForm] = useState(blankServiceForm)
   const [generateClientId, setGenerateClientId] = useState('')
   const [billingMonth, setBillingMonth] = useState(getDefaultBillingMonth)
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState('ALL')
   const billingMonthOptions = useMemo(() => getBillingMonthOptions(), [])
 
   const [backupUrl, setBackupUrl] = useState(() =>
@@ -138,11 +139,45 @@ export default function AdminBillingSetup({ session }) {
   const filteredInvoices = useMemo(() => {
     const selectedMonth = String(billingMonth || '').slice(0, 7)
   
-    if (!selectedMonth) return invoices
-  
     return (invoices || []).filter((invoice) => {
+      const invoiceMonth =
+        String(invoice.period_start || '').slice(0, 7)
+  
+      const matchMonth =
+        !selectedMonth || invoiceMonth === selectedMonth
+  
+      const matchStatus =
+        invoiceStatusFilter === 'ALL' ||
+        invoice.status === invoiceStatusFilter
+  
+      return matchMonth && matchStatus
+    })
+  }, [invoices, billingMonth, invoiceStatusFilter])
+
+  const invoiceMonthSummary = useMemo(() => {
+    const selectedMonth = String(billingMonth || '').slice(0, 7)
+  
+    const monthInvoices = (invoices || []).filter((invoice) => {
       return String(invoice.period_start || '').slice(0, 7) === selectedMonth
     })
+  
+    const summary = {
+      total: monthInvoices.length,
+      draft: 0,
+      unpaid: 0,
+      paid: 0,
+      amount: 0,
+    }
+  
+    for (const invoice of monthInvoices) {
+      if (invoice.status === 'draft') summary.draft += 1
+      if (invoice.status === 'unpaid') summary.unpaid += 1
+      if (invoice.status === 'paid') summary.paid += 1
+  
+      summary.amount += Number(invoice.total_amount || 0)
+    }
+  
+    return summary
   }, [invoices, billingMonth])
   
   useEffect(() => {
@@ -1792,6 +1827,24 @@ export default function AdminBillingSetup({ session }) {
             </select>
           </label>
 
+          <label style={styles.inputLabel}>
+            Invoice Status Filter
+            <span style={styles.inputSub}>
+              Filter tampilan Invoice List.
+            </span>
+          
+            <select
+              style={styles.input}
+              value={invoiceStatusFilter}
+              onChange={(event) => setInvoiceStatusFilter(event.target.value)}
+            >
+              <option value="ALL">ALL</option>
+              <option value="draft">draft</option>
+              <option value="unpaid">unpaid</option>
+              <option value="paid">paid</option>
+            </select>
+          </label>
+          
           <label style={styles.inputLabel}>
             Client
             <span style={styles.inputSub}>
