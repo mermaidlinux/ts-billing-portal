@@ -1285,6 +1285,23 @@ export default function AdminBillingSetup({ session }) {
       gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
       gap: 12,
     },
+    card: {
+      padding: 14,
+      borderRadius: 14,
+      background: 'rgba(2, 6, 23, 0.42)',
+      border: '1px solid rgba(148, 163, 184, 0.18)',
+    },
+    label: {
+      color: '#94a3b8',
+      fontSize: 12,
+      fontWeight: 800,
+      marginBottom: 6,
+    },
+    value: {
+      color: '#f8fafc',
+      fontSize: 18,
+      fontWeight: 900,
+    },
     inputLabel: {
       display: 'block',
       color: '#cbd5e1',
@@ -1832,7 +1849,7 @@ export default function AdminBillingSetup({ session }) {
             <span style={styles.inputSub}>
               Filter tampilan Invoice List.
             </span>
-          
+
             <select
               style={styles.input}
               value={invoiceStatusFilter}
@@ -1844,7 +1861,7 @@ export default function AdminBillingSetup({ session }) {
               <option value="paid">paid</option>
             </select>
           </label>
-          
+
           <label style={styles.inputLabel}>
             Client
             <span style={styles.inputSub}>
@@ -1866,6 +1883,35 @@ export default function AdminBillingSetup({ session }) {
               ))}
             </select>
           </label>
+        </div>
+
+        <div style={{ ...styles.grid, marginTop: 14 }}>
+          <div style={styles.card}>
+            <div style={styles.label}>Invoice Bulan Ini</div>
+            <div style={styles.value}>{invoiceMonthSummary.total}</div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.label}>Draft</div>
+            <div style={styles.value}>{invoiceMonthSummary.draft}</div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.label}>Unpaid</div>
+            <div style={styles.value}>{invoiceMonthSummary.unpaid}</div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.label}>Paid</div>
+            <div style={styles.value}>{invoiceMonthSummary.paid}</div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.label}>Total Billing</div>
+            <div style={styles.value}>
+              {formatMoney(invoiceMonthSummary.amount)}
+            </div>
+          </div>
         </div>
 
         <div style={{ ...styles.buttonRow, marginTop: 14 }}>
@@ -1911,7 +1957,7 @@ export default function AdminBillingSetup({ session }) {
 
       <AdjustableTable
         title={`Invoice List — ${billingMonth}`}
-        subtitle={`Menampilkan ${filteredInvoices.length} invoice untuk bulan ${billingMonth}. Total invoice tersimpan: ${invoices.length}.`}
+        subtitle={`Menampilkan ${filteredInvoices.length} invoice. Filter status: ${invoiceStatusFilter}. Total invoice bulan ini: ${invoiceMonthSummary.total}.`}
         storageKey="ts_billing_invoices_table"
         columns={invoiceColumns}
         rows={filteredInvoices}
