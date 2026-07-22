@@ -134,14 +134,16 @@ export default function AdminBillingSetup({ session }) {
   const activeClients = useMemo(() => {
     return clients.filter((client) => client.status === 'active')
   }, [clients])
-
-const filteredInvoices = useMemo(() => {
-  if (!billingMonth) return invoices
-
-  return invoices.filter((invoice) => {
-    return String(invoice.period_start || '').slice(0, 7) === billingMonth
-  })
-}, [invoices, billingMonth])
+  
+  const filteredInvoices = useMemo(() => {
+    const selectedMonth = String(billingMonth || '').slice(0, 7)
+  
+    if (!selectedMonth) return invoices
+  
+    return (invoices || []).filter((invoice) => {
+      return String(invoice.period_start || '').slice(0, 7) === selectedMonth
+    })
+  }, [invoices, billingMonth])
   
   useEffect(() => {
     if (!serviceForm.client_id && activeClients[0]?.id) {
@@ -1767,7 +1769,7 @@ const filteredInvoices = useMemo(() => {
 
       <AdjustableTable
         title={`Invoice List — ${billingMonth}`}
-        subtitle="Daftar invoice sesuai Billing Month yang dipilih."
+        subtitle={`Menampilkan ${filteredInvoices.length} invoice untuk bulan ${billingMonth}. Total invoice tersimpan: ${invoices.length}.`}
         storageKey="ts_billing_invoices_table"
         columns={invoiceColumns}
         rows={filteredInvoices}
