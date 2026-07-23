@@ -2049,6 +2049,140 @@ export default function AdminBillingSetup({ session }) {
         emptyText="Belum ada service."
       />
 
+      <section style={styles.section}>
+        <h3 style={styles.sectionTitle}>Generate Invoice Bulanan</h3>
+
+        <p style={styles.sectionSub}>
+          Pilih bulan invoice dulu supaya sistem tidak loncat ke bulan berikutnya.
+        </p>
+
+        <div style={styles.grid}>
+          <label style={styles.inputLabel}>
+            Billing Month
+            <span style={styles.inputSub}>
+              Pilih bulan invoice yang mau dibuat.
+            </span>
+
+            <select
+              style={styles.input}
+              value={billingMonth}
+              onChange={(event) => setBillingMonth(event.target.value)}
+              disabled={generating || bulkGenerating}
+            >
+              {billingMonthOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={styles.inputLabel}>
+            Invoice Status Filter
+            <span style={styles.inputSub}>
+              Filter tampilan Invoice List.
+            </span>
+
+            <select
+              style={styles.input}
+              value={invoiceStatusFilter}
+              onChange={(event) => setInvoiceStatusFilter(event.target.value)}
+            >
+              <option value="ALL">ALL</option>
+              <option value="draft">draft</option>
+              <option value="unpaid">unpaid</option>
+              <option value="paid">paid</option>
+            </select>
+          </label>
+
+          <label style={styles.inputLabel}>
+            Client
+            <span style={styles.inputSub}>
+              Pilih client yang mau dibuat invoice.
+            </span>
+
+            <select
+              style={styles.input}
+              value={generateClientId}
+              onChange={(event) => setGenerateClientId(event.target.value)}
+              disabled={generating || bulkGenerating}
+            >
+              <option value="">Pilih client</option>
+
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.client_name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div style={{ ...styles.grid, marginTop: 14 }}>
+          <div style={styles.card}>
+            <div style={styles.label}>Invoice Bulan Ini</div>
+            <div style={styles.value}>{invoiceMonthSummary.total}</div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.label}>Draft</div>
+            <div style={styles.value}>{invoiceMonthSummary.draft}</div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.label}>Unpaid</div>
+            <div style={styles.value}>{invoiceMonthSummary.unpaid}</div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.label}>Paid</div>
+            <div style={styles.value}>{invoiceMonthSummary.paid}</div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.label}>Due Today</div>
+            <div style={styles.value}>{invoiceMonthSummary.dueToday}</div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.label}>Grace Period</div>
+            <div style={styles.value}>{invoiceMonthSummary.grace}</div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.label}>Overdue</div>
+            <div style={styles.value}>{invoiceMonthSummary.overdue}</div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.label}>Total Billing</div>
+            <div style={styles.value}>
+              {formatMoney(invoiceMonthSummary.amount)}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.buttonRow, marginTop: 14 }}>
+          <button
+            type="button"
+            style={styles.primaryButton}
+            onClick={generateNextInvoice}
+            disabled={generating || bulkGenerating}
+          >
+            {generating ? 'Generating...' : 'Generate Selected Client'}
+          </button>
+
+          <button
+            type="button"
+            style={styles.button}
+            onClick={generateAllNextInvoices}
+            disabled={generating || bulkGenerating}
+          >
+            {bulkGenerating ? 'Generating All...' : 'Generate All Active Clients'}
+          </button>
+        </div>
+      </section>
+
       <AdjustableTable
         title={`Invoice List — ${billingMonth}`}
         subtitle={`Menampilkan ${filteredInvoices.length} invoice. Filter status: ${invoiceStatusFilter}. Total invoice bulan ini: ${invoiceMonthSummary.total}.`}
