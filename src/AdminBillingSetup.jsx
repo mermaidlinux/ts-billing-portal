@@ -290,31 +290,119 @@ export default function AdminBillingSetup({ session }) {
   }
 
   async function backupToSheet(table, action, payload) {
-    console.log('Google Sheet backup skipped for now:', {
-      table,
-      action,
-      payload,
-    })
+    if (!token) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: 'No admin session token.',
+      }
+    }
 
-    return {
-      ok: true,
-      skipped: true,
-      reason: 'Google Sheet browser backup disabled sementara.',
+    try {
+      const response = await fetch('/api/admin-payments', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'backup_billing_data',
+          mode: 'single',
+          table,
+          backup_action: action,
+          payload,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Backup single gagal.')
+      }
+
+      return result
+    } catch (err) {
+      console.warn('Google Sheet backup failed:', err)
+
+      return {
+        ok: false,
+        error: err.message || 'Backup gagal.',
+      }
     }
   }
 
   async function testBackup() {
-    setMessage({
-      type: 'error',
-      text: 'Backup Google Sheet sementara dinonaktifkan agar halaman Billing Setup stabil. Data utama tetap aman di Supabase.',
-    })
+    setMessage(null)
+
+    try {
+      const response = await fetch('/api/admin-payments', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'backup_billing_data',
+          mode: 'test',
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Test backup gagal.')
+      }
+
+      setMessage({
+        type: 'success',
+        text: 'Test backup berhasil. Cek Google Sheet tab logs.',
+      })
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Gagal test backup Google Sheet.',
+      })
+    }
   }
 
   async function backupAllCurrentData() {
-    setMessage({
-      type: 'error',
-      text: 'Backup Google Sheet sementara dinonaktifkan. Kita lanjutkan setelah Billing Setup dan invoice stabil.',
-    })
+    const confirmed = window.confirm(
+      'Backup semua data billing ke Google Sheet?\n\nData yang dibackup: clients, services, invoices, invoice_items, payments.'
+    )
+
+    if (!confirmed) return
+
+    setMessage(null)
+
+    try {
+      const response = await fetch('/api/admin-payments', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'backup_billing_data',
+          mode: 'full',
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Backup all gagal.')
+      }
+
+      setMessage({
+        type: 'success',
+        text: `Backup berhasil. Total row: ${result.total_rows}. Cek Google Sheet.`,
+      })
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Gagal backup semua data billing.',
+      })
+    }
   }
 
   function handleClientChange(field, value) {
