@@ -29,6 +29,53 @@ function formatDate(value) {
   }
 }
 
+function getDueStatus(row) {
+  if (!row) return 'UNKNOWN'
+
+  if (row.status === 'paid') return 'PAID'
+  if (row.status === 'draft') return 'DRAFT'
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const dueDate = row.due_date ? new Date(row.due_date) : null
+  const graceUntil = row.grace_until ? new Date(row.grace_until) : null
+
+  if (dueDate) dueDate.setHours(0, 0, 0, 0)
+  if (graceUntil) graceUntil.setHours(0, 0, 0, 0)
+
+  if (!dueDate) return 'NO_DUE_DATE'
+
+  if (today.getTime() < dueDate.getTime()) {
+    return 'WAITING_PAYMENT'
+  }
+
+  if (today.getTime() === dueDate.getTime()) {
+    return 'DUE_TODAY'
+  }
+
+  if (graceUntil && today.getTime() <= graceUntil.getTime()) {
+    return 'IN_GRACE'
+  }
+
+  return 'OVERDUE'
+}
+
+function getDueStatusLabel(status) {
+  const labels = {
+    PAID: 'Paid',
+    DRAFT: 'Draft',
+    WAITING_PAYMENT: 'Waiting Payment',
+    DUE_TODAY: 'Due Today',
+    IN_GRACE: 'Grace Period',
+    OVERDUE: 'Overdue',
+    NO_DUE_DATE: 'No Due Date',
+    UNKNOWN: 'Unknown',
+  }
+
+  return labels[status] || status
+}
+
 function emptyToNull(value) {
   if (value === null || value === undefined || value === '') return null
   return value
@@ -161,19 +208,30 @@ export default function AdminBillingSetup({ session }) {
       return String(invoice.period_start || '').slice(0, 7) === selectedMonth
     })
   
-    const summary = {
-      total: monthInvoices.length,
-      draft: 0,
-      unpaid: 0,
-      paid: 0,
-      amount: 0,
-    }
+  const summary = {
+    total: monthInvoices.length,
+    draft: 0,
+    unpaid: 0,
+    paid: 0,
+    waiting: 0,
+    dueToday: 0,
+    grace: 0,
+    overdue: 0,
+    amount: 0,
+  }
   
     for (const invoice of monthInvoices) {
       if (invoice.status === 'draft') summary.draft += 1
       if (invoice.status === 'unpaid') summary.unpaid += 1
       if (invoice.status === 'paid') summary.paid += 1
-  
+
+      const dueStatus = getDueStatus(invoice)
+      
+      if (dueStatus === 'WAITING_PAYMENT') summary.waiting += 1
+      if (dueStatus === 'DUE_TODAY') summary.dueToday += 1
+      if (dueStatus === 'IN_GRACE') summary.grace += 1
+      if (dueStatus === 'OVERDUE') summary.overdue += 1
+      
       summary.amount += Number(invoice.total_amount || 0)
     }
   
@@ -942,6 +1000,27 @@ export default function AdminBillingSetup({ session }) {
           {row.status}
         </span>
       ),
+    },
+    {
+      key: 'due_status',
+      label: 'Due Status',
+      width: 160,
+      render: (row) => {
+        const dueStatus = getDueStatus(row)
+    
+        let style = styles.warn
+    
+        if (dueStatus === 'PAID') style = styles.good
+        if (dueStatus === 'OVERDUE') style = styles.bad
+        if (dueStatus === 'IN_GRACE') style = styles.warn
+        if (dueStatus === 'DUE_TODAY') style = styles.warn
+    
+        return (
+          <span style={style}>
+            {getDueStatusLabel(dueStatus)}
+          </span>
+        )
+      },
     },
     {
       key: 'notes',
@@ -1906,6 +1985,21 @@ export default function AdminBillingSetup({ session }) {
             <div style={styles.value}>{invoiceMonthSummary.paid}</div>
           </div>
 
+          <div style={styles.card}>
+            <div style={styles.label}>Due Today</div>
+            <div style={styles.value}>{invoiceMonthSummary.dueToday}</div>
+          </div>
+          
+          <div style={styles.card}>
+            <div style={styles.label}>Grace Period</div>
+            <div style={styles.value}>{invoiceMonthSummary.grace}</div>
+          </div>
+          
+          <div style={styles.card}>
+            <div style={styles.label}>Overdue</div>
+            <div style={styles.value}>{invoiceMonthSummary.overdue}</div>
+          </div>
+          
           <div style={styles.card}>
             <div style={styles.label}>Total Billing</div>
             <div style={styles.value}>
