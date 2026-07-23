@@ -156,11 +156,12 @@ async function postGoogleSheetBackup({ table, action, payload }) {
     body = JSON.parse(rawText)
   } catch {
     body = {
-      raw: rawText,
+      ok: false,
+      error: `Google Apps Script returned non-JSON response: ${rawText.slice(0, 500)}`,
     }
   }
 
-  if (!response.ok || body?.ok === false) {
+  if (!response.ok || body?.ok !== true) {
     throw new Error(
       body?.error ||
         body?.message ||
