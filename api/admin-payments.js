@@ -1,23 +1,43 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseAdmin = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  {
+let supabaseAdmin = null
+
+function getSupabaseAdmin() {
+  if (supabaseAdmin) return supabaseAdmin
+
+  const supabaseUrl = String(process.env.VITE_SUPABASE_URL || '').trim()
+  const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
+
+  if (!supabaseUrl) {
+    throw new Error('VITE_SUPABASE_URL belum diset di Vercel.')
+  }
+
+  if (!serviceRoleKey) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY belum diset di Vercel.')
+  }
+
+  supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
     },
-  }
-)
+  })
+
+  return supabaseAdmin
+}
 
 const billingBaseUrl =
   process.env.BILLING_BASE_URL ||
   'https://ts-billing-portal.vercel.app'
 
 const fonnteToken = process.env.FONNTE_TOKEN
-const googleSheetBackupUrl = process.env.GOOGLE_SHEET_BACKUP_URL
-const googleSheetBackupSecret = process.env.GOOGLE_SHEET_BACKUP_SECRET
+const googleSheetBackupUrl = String(
+  process.env.GOOGLE_SHEET_BACKUP_URL || ''
+).trim()
+
+const googleSheetBackupSecret = String(
+  process.env.GOOGLE_SHEET_BACKUP_SECRET || ''
+).trim()
 
 function getAllowedAdminEmails() {
   return String(process.env.BILLING_ADMIN_EMAIL || '')
@@ -135,18 +155,47 @@ async function postGoogleSheetBackup({ table, action, payload }) {
     )
   }
 
-  const response = await fetch(googleSheetBackupUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      secret: googleSheetBackupSecret,
-      table,
-      action,
-      payload,
-    }),
-  })
+  if (!googleSheetBackupUrl.includes('/exec')) {
+    throw new Error(
+      'GOOGLE_SHEET_BACKUP_URL harus pakai Web App URL yang berakhir /exec.'
+    )
+  }
+
+  const controller = new AbortController()
+
+  const timeout = setTimeout(() => {
+    controller.abort()
+  }, 7000)
+
+  let response
+
+  try {
+    response = await fetch(googleSheetBackupUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify({
+        secret: googleSheetBackupSecret,
+        table,
+        action,
+        payload,
+      }),
+      signal: controller.signal,
+    })
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error(
+        'Google Sheet backup timeout lebih dari 7 detik. Apps Script lambat / belum siap.'
+      )
+    }
+
+    throw new Error(
+      `Gagal connect ke Google Apps Script: ${err.message || String(err)}`
+    )
+  } finally {
+    clearTimeout(timeout)
+  }
 
   const rawText = await response.text()
 
@@ -157,7 +206,10 @@ async function postGoogleSheetBackup({ table, action, payload }) {
   } catch {
     body = {
       ok: false,
-      error: `Google Apps Script returned non-JSON response: ${rawText.slice(0, 500)}`,
+      error: `Google Apps Script returned non-JSON response: ${rawText.slice(
+        0,
+        500
+      )}`,
     }
   }
 
@@ -700,6 +752,8 @@ async function handleGetPayments(req, res) {
 
 export default async function handler(req, res) {
   try {
+    supabaseAdmin = getSupabaseAdmin()
+
     const user = await verifyAdmin(req)
 
     if (req.method === 'GET') {
