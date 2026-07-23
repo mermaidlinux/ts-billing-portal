@@ -289,6 +289,21 @@ export default function AdminBillingSetup({ session }) {
     })
   }
 
+  async function readApiResponse(response) {
+    const text = await response.text()
+
+    try {
+      return JSON.parse(text)
+    } catch {
+      return {
+        ok: false,
+        error:
+          text?.slice(0, 500) ||
+          `Server returned non-JSON response. HTTP ${response.status}`,
+      }
+    }
+  }
+  
   async function backupToSheet(table, action, payload) {
     if (!token) {
       return {
@@ -314,7 +329,7 @@ export default function AdminBillingSetup({ session }) {
         }),
       })
 
-      const result = await response.json()
+      const result = await readApiResponse(response)
 
       if (!response.ok || !result.ok) {
         throw new Error(result.error || 'Backup single gagal.')
@@ -347,7 +362,7 @@ export default function AdminBillingSetup({ session }) {
         }),
       })
 
-      const result = await response.json()
+      const result = await readApiResponse(response)
 
       if (!response.ok || !result.ok) {
         throw new Error(result.error || 'Test backup gagal.')
@@ -387,7 +402,7 @@ export default function AdminBillingSetup({ session }) {
         }),
       })
 
-      const result = await response.json()
+      const result = await readApiResponse(response)
 
       if (!response.ok || !result.ok) {
         throw new Error(result.error || 'Backup all gagal.')
@@ -1038,7 +1053,7 @@ export default function AdminBillingSetup({ session }) {
         }),
       })
 
-      const result = await response.json()
+      const result = await readApiResponse(response)
 
       if (!response.ok || !result.ok) {
         throw new Error(result.error || 'Gagal kirim invoice via Fonnte.')
