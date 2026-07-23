@@ -467,7 +467,7 @@ export default function AdminBillingSetup({ session }) {
 
       setMessage({
         type: 'success',
-        text: `Client berhasil di-${data.action}. Data tersimpan ke Supabase. Backup Google Sheet sementara nonaktif.`,
+        text: `Client berhasil di-${data.action}. Data tersimpan ke Supabase. Backup Google Sheet dicoba otomatis..`,
       })
 
       setClientForm(blankClientForm)
@@ -536,7 +536,7 @@ export default function AdminBillingSetup({ session }) {
 
       setMessage({
         type: 'success',
-        text: `Service berhasil di-${data.action}. Data tersimpan ke Supabase. Backup Google Sheet sementara nonaktif.`,
+        text: `Service berhasil di-${data.action}. Data tersimpan ke Supabase. Backup Google Sheet dicoba otomatis..`,
       })
 
       setServiceForm({
@@ -1105,27 +1105,6 @@ export default function AdminBillingSetup({ session }) {
       ),
     },
     {
-      key: 'due_status',
-      label: 'Due Status',
-      width: 160,
-      render: (row) => {
-        const dueStatus = getDueStatus(row)
-    
-        let style = styles.warn
-    
-        if (dueStatus === 'PAID') style = styles.good
-        if (dueStatus === 'OVERDUE') style = styles.bad
-        if (dueStatus === 'IN_GRACE') style = styles.warn
-        if (dueStatus === 'DUE_TODAY') style = styles.warn
-    
-        return (
-          <span style={style}>
-            {getDueStatusLabel(dueStatus)}
-          </span>
-        )
-      },
-    },
-    {
       key: 'notes',
       label: 'Notes',
       width: 260,
@@ -1252,6 +1231,27 @@ export default function AdminBillingSetup({ session }) {
           {row.status}
         </span>
       ),
+    },
+    {
+      key: 'due_status',
+      label: 'Due Status',
+      width: 160,
+      render: (row) => {
+        const dueStatus = getDueStatus(row)
+
+        let style = styles.warn
+
+        if (dueStatus === 'PAID') style = styles.good
+        if (dueStatus === 'OVERDUE') style = styles.bad
+        if (dueStatus === 'IN_GRACE') style = styles.warn
+        if (dueStatus === 'DUE_TODAY') style = styles.warn
+
+        return (
+          <span style={style}>
+            {getDueStatusLabel(dueStatus)}
+          </span>
+        )
+      },
     },
     {
       key: 'item_count',
@@ -1996,140 +1996,6 @@ export default function AdminBillingSetup({ session }) {
             )}
           </div>
         </form>
-      </section>
-
-      <section style={styles.section}>
-        <h3 style={styles.sectionTitle}>Generate Invoice Bulanan</h3>
-
-        <p style={styles.sectionSub}>
-          Pilih bulan invoice dulu supaya sistem tidak loncat ke bulan berikutnya.
-        </p>
-
-        <div style={styles.grid}>
-          <label style={styles.inputLabel}>
-            Billing Month
-            <span style={styles.inputSub}>
-              Pilih bulan invoice yang mau dibuat.
-            </span>
-
-            <select
-              style={styles.input}
-              value={billingMonth}
-              onChange={(event) => setBillingMonth(event.target.value)}
-              disabled={generating || bulkGenerating}
-            >
-              {billingMonthOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label style={styles.inputLabel}>
-            Invoice Status Filter
-            <span style={styles.inputSub}>
-              Filter tampilan Invoice List.
-            </span>
-
-            <select
-              style={styles.input}
-              value={invoiceStatusFilter}
-              onChange={(event) => setInvoiceStatusFilter(event.target.value)}
-            >
-              <option value="ALL">ALL</option>
-              <option value="draft">draft</option>
-              <option value="unpaid">unpaid</option>
-              <option value="paid">paid</option>
-            </select>
-          </label>
-
-          <label style={styles.inputLabel}>
-            Client
-            <span style={styles.inputSub}>
-              Pilih client yang mau dibuat invoice.
-            </span>
-
-            <select
-              style={styles.input}
-              value={generateClientId}
-              onChange={(event) => setGenerateClientId(event.target.value)}
-              disabled={generating || bulkGenerating}
-            >
-              <option value="">Pilih client</option>
-
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.client_name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <div style={{ ...styles.grid, marginTop: 14 }}>
-          <div style={styles.card}>
-            <div style={styles.label}>Invoice Bulan Ini</div>
-            <div style={styles.value}>{invoiceMonthSummary.total}</div>
-          </div>
-
-          <div style={styles.card}>
-            <div style={styles.label}>Draft</div>
-            <div style={styles.value}>{invoiceMonthSummary.draft}</div>
-          </div>
-
-          <div style={styles.card}>
-            <div style={styles.label}>Unpaid</div>
-            <div style={styles.value}>{invoiceMonthSummary.unpaid}</div>
-          </div>
-
-          <div style={styles.card}>
-            <div style={styles.label}>Paid</div>
-            <div style={styles.value}>{invoiceMonthSummary.paid}</div>
-          </div>
-
-          <div style={styles.card}>
-            <div style={styles.label}>Due Today</div>
-            <div style={styles.value}>{invoiceMonthSummary.dueToday}</div>
-          </div>
-          
-          <div style={styles.card}>
-            <div style={styles.label}>Grace Period</div>
-            <div style={styles.value}>{invoiceMonthSummary.grace}</div>
-          </div>
-          
-          <div style={styles.card}>
-            <div style={styles.label}>Overdue</div>
-            <div style={styles.value}>{invoiceMonthSummary.overdue}</div>
-          </div>
-          
-          <div style={styles.card}>
-            <div style={styles.label}>Total Billing</div>
-            <div style={styles.value}>
-              {formatMoney(invoiceMonthSummary.amount)}
-            </div>
-          </div>
-        </div>
-
-        <div style={{ ...styles.buttonRow, marginTop: 14 }}>
-          <button
-            type="button"
-            style={styles.primaryButton}
-            onClick={generateNextInvoice}
-            disabled={generating || bulkGenerating}
-          >
-            {generating ? 'Generating...' : 'Generate Selected Client'}
-          </button>
-
-          <button
-            type="button"
-            style={styles.button}
-            onClick={generateAllNextInvoices}
-            disabled={generating || bulkGenerating}
-          >
-            {bulkGenerating ? 'Generating All...' : 'Generate All Active Clients'}
-          </button>
-        </div>
       </section>
 
       <AdjustableTable
