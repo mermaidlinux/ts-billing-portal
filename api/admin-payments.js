@@ -16,6 +16,8 @@ const billingBaseUrl =
   'https://ts-billing-portal.vercel.app'
 
 const fonnteToken = process.env.FONNTE_TOKEN
+const googleSheetBackupUrl = process.env.GOOGLE_SHEET_BACKUP_URL
+const googleSheetBackupSecret = process.env.GOOGLE_SHEET_BACKUP_SECRET
 
 function getAllowedAdminEmails() {
   return String(process.env.BILLING_ADMIN_EMAIL || '')
@@ -124,6 +126,186 @@ function buildInvoiceMessage({ invoice, client, invoiceLink }) {
     ``,
     `Terima kasih.`,
   ].join('\n')
+}
+
+async function postGoogleSheetBackup({ table, action, payload }) {
+  if (!googleSheetBackupUrl || !googleSheetBackupSecret) {
+    throw new Error(
+      'GOOGLE_SHEET_BACKUP_URL / GOOGLE_SHEET_BACKUP_SECRET belum diset di Vercel.'
+    )
+  }
+
+  const response = await fetch(googleSheetBackupUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      secret: googleSheetBackupSecret,
+      table,
+      action,
+      payload,
+    }),
+  })
+
+  const rawText = await response.text()
+
+  let body = null
+
+  try {
+    body = JSON.parse(rawText)
+  } catch {
+    body = {
+      raw: rawText,
+    }
+  }
+
+  if (!response.ok || body?.ok === false) {
+    throw new Error(
+      body?.error ||
+        body?.message ||
+        `Google Sheet backup gagal HTTP ${response.status}`
+    )
+  }
+
+  return body
+}
+
+async function getBackupRowsForBilling() {
+  const backupRows = []
+  const counts = {}
+
+  async function addTableRows({ supabaseTable, sheetTable, action }) {
+    const { data, error } = await supabaseAdmin
+      .from(supabaseTable)
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+
+    const rows = data || []
+    counts[sheetTable] = rows.length
+
+    for (const row of rows) {
+      backupRows.push({
+        table: sheetTable,
+        action,
+        payload: row,
+      })
+    }
+  }
+
+  await addTableRows({
+    supabaseTable: 'ts_clients',
+    sheetTable: 'clients',
+    action: 'backup_client',
+  })
+
+  await addTableRows({
+    supabaseTable: 'ts_client_services',
+    sheetTable: 'services',
+    action: 'backup_service',
+  })
+
+  await addTableRows({
+    supabaseTable: 'ts_billing_invoices',
+    sheetTable: 'invoices',
+    action: 'backup_invoice',
+  })
+
+  await addTableRows({
+    supabaseTable: 'ts_billing_invoice_items',
+    sheetTable: 'invoice_items',
+    action: 'backup_invoice_item',
+  })
+
+  await addTableRows({
+    supabaseTable: 'ts_payment_confirmations',
+    sheetTable: 'payments',
+    action: 'backup_payment',
+  })
+
+  backupRows.push({
+    table: 'logs',
+    action: 'backup_billing_data_done',
+    payload: {
+      source: 'api/admin-payments',
+      counts,
+      total_rows: backupRows.length,
+      backed_up_at: new Date().toISOString(),
+    },
+  })
+
+  return {
+    rows: backupRows,
+    counts,
+  }
+}
+
+async function handleBackupBillingData(req, res, user) {
+  const body = parseBody(req)
+  const mode = body.mode || 'full'
+
+  if (mode === 'test') {
+    const result = await postGoogleSheetBackup({
+      table: 'logs',
+      action: 'test_backup_from_admin_portal',
+      payload: {
+        source: 'api/admin-payments',
+        admin_email: user.email,
+        tested_at: new Date().toISOString(),
+      },
+    })
+
+    return res.status(200).json({
+      ok: true,
+      mode,
+      message: 'Test backup berhasil dikirim ke Google Sheet.',
+      result,
+    })
+  }
+
+  if (mode === 'single') {
+    const table = body.table || 'logs'
+    const action = body.backup_action || body.backupAction || 'single_backup'
+    const payload = body.payload || {}
+
+    const result = await postGoogleSheetBackup({
+      table,
+      action,
+      payload: {
+        ...payload,
+        backed_up_by: user.email,
+        backed_up_at: new Date().toISOString(),
+      },
+    })
+
+    return res.status(200).json({
+      ok: true,
+      mode,
+      message: 'Single backup berhasil dikirim ke Google Sheet.',
+      result,
+    })
+  }
+
+  const backupData = await getBackupRowsForBilling()
+
+  const result = await postGoogleSheetBackup({
+    table: 'logs',
+    action: 'backup_billing_data_batch',
+    payload: {
+      rows: backupData.rows,
+    },
+  })
+
+  return res.status(200).json({
+    ok: true,
+    mode: 'full',
+    message: 'Backup billing data berhasil dikirim ke Google Sheet.',
+    counts: backupData.counts,
+    total_rows: backupData.rows.length,
+    result,
+  })
 }
 
 async function sendFonnteMessage({ target, message }) {
@@ -530,6 +712,10 @@ export default async function handler(req, res) {
         return handleSendInvoiceWhatsApp(req, res, user)
       }
 
+      if (body.action === 'backup_billing_data') {
+        return handleBackupBillingData(req, res, user)
+      }
+      
       return res.status(400).json({
         ok: false,
         error: 'Action POST tidak dikenal.',
