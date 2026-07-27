@@ -366,17 +366,50 @@ async function sendFonnteMessage({ target, message }) {
     throw new Error('FONNTE_TOKEN belum diset di Vercel Environment Variables.')
   }
 
+  const cleanTarget = String(target || '').replace(/\D/g, '')
+
+  if (!cleanTarget) {
+    throw new Error('Nomor WhatsApp target kosong / tidak valid.')
+  }
+
+  if (!message || !String(message).trim()) {
+    throw new Error('Isi pesan Fonnte kosong.')
+  }
+
   const form = new URLSearchParams()
-  form.set('target', target)
+  form.set('target', cleanTarget)
   form.set('message', message)
 
-  const response = await fetch('https://api.fonnte.com/send', {
-    method: 'POST',
-    headers: {
-      Authorization: fonnteToken,
-    },
-    body: form,
-  })
+  const controller = new AbortController()
+
+  const timeout = setTimeout(() => {
+    controller.abort()
+  }, 12000)
+
+  let response
+
+  try {
+    response = await fetch('https://api.fonnte.com/send', {
+      method: 'POST',
+      headers: {
+        Authorization: fonnteToken,
+      },
+      body: form,
+      signal: controller.signal,
+    })
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error(
+        'Fonnte timeout lebih dari 12 detik. Cek device Fonnte apakah online/connected.'
+      )
+    }
+
+    throw new Error(
+      `Gagal connect ke Fonnte: ${err.message || String(err)}`
+    )
+  } finally {
+    clearTimeout(timeout)
+  }
 
   const rawText = await response.text()
 
@@ -394,6 +427,7 @@ async function sendFonnteMessage({ target, message }) {
     throw new Error(
       responseBody?.reason ||
         responseBody?.message ||
+        responseBody?.raw ||
         `Fonnte error HTTP ${response.status}`
     )
   }
@@ -406,12 +440,14 @@ async function sendFonnteMessage({ target, message }) {
     throw new Error(
       responseBody.reason ||
         responseBody.message ||
+        responseBody.raw ||
         'Fonnte menolak pengiriman pesan.'
     )
   }
 
   return {
     statusCode: response.status,
+    target: cleanTarget,
     body: responseBody,
   }
 }
