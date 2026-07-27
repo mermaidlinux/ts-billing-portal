@@ -26,11 +26,13 @@ function getSupabaseAdmin() {
   return supabaseAdmin
 }
 
-const billingBaseUrl =
+const billingBaseUrl = String(
   process.env.BILLING_BASE_URL ||
-  'https://ts-billing-portal.vercel.app'
+    'https://ts-billing-portal.vercel.app'
+).trim()
 
-const fonnteToken = process.env.FONNTE_TOKEN
+const fonnteToken = String(process.env.FONNTE_TOKEN || '').trim()
+
 const googleSheetBackupUrl = String(
   process.env.GOOGLE_SHEET_BACKUP_URL || ''
 ).trim()
@@ -47,6 +49,8 @@ function getAllowedAdminEmails() {
 }
 
 async function verifyAdmin(req) {
+  const adminClient = getSupabaseAdmin()
+
   const authorization = String(req.headers.authorization || '')
 
   if (!authorization.startsWith('Bearer ')) {
@@ -58,7 +62,7 @@ async function verifyAdmin(req) {
   const {
     data: { user },
     error,
-  } = await supabaseAdmin.auth.getUser(accessToken)
+  } = await adminClient.auth.getUser(accessToken)
 
   if (error || !user?.email) {
     throw new Error('UNAUTHORIZED')
@@ -98,6 +102,10 @@ function normalizeWhatsApp(value) {
 
   if (digits.startsWith('62')) {
     return digits
+  }
+
+  if (digits.startsWith('8')) {
+    return `62${digits}`
   }
 
   return digits
@@ -146,6 +154,99 @@ function buildInvoiceMessage({ invoice, client, invoiceLink }) {
     ``,
     `Terima kasih.`,
   ].join('\n')
+}
+
+async function sendFonnteMessage({ target, message }) {
+  if (!fonnteToken) {
+    throw new Error('FONNTE_TOKEN belum diset di Vercel Environment Variables.')
+  }
+
+  const cleanTarget = normalizeWhatsApp(target)
+
+  if (!cleanTarget) {
+    throw new Error('Nomor WhatsApp target kosong / tidak valid.')
+  }
+
+  if (!message || !String(message).trim()) {
+    throw new Error('Isi pesan Fonnte kosong.')
+  }
+
+  const form = new URLSearchParams()
+  form.set('target', cleanTarget)
+  form.set('message', message)
+
+  const controller = new AbortController()
+
+  const timeout = setTimeout(() => {
+    controller.abort()
+  }, 8500)
+
+  let response
+
+  try {
+    response = await fetch('https://api.fonnte.com/send', {
+      method: 'POST',
+      headers: {
+        Authorization: fonnteToken,
+      },
+      body: form,
+      signal: controller.signal,
+    })
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error(
+        'Fonnte timeout lebih dari 8.5 detik. Cek device Fonnte apakah online / connected.'
+      )
+    }
+
+    throw new Error(
+      `Gagal connect ke Fonnte: ${err.message || String(err)}`
+    )
+  } finally {
+    clearTimeout(timeout)
+  }
+
+  const rawText = await response.text()
+
+  let responseBody = null
+
+  try {
+    responseBody = JSON.parse(rawText)
+  } catch {
+    responseBody = {
+      raw: rawText,
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      responseBody?.reason ||
+        responseBody?.message ||
+        responseBody?.detail ||
+        responseBody?.raw ||
+        `Fonnte error HTTP ${response.status}`
+    )
+  }
+
+  if (
+    responseBody &&
+    (responseBody.status === false ||
+      responseBody.status === 'false')
+  ) {
+    throw new Error(
+      responseBody.reason ||
+        responseBody.message ||
+        responseBody.detail ||
+        responseBody.raw ||
+        'Fonnte menolak pengiriman pesan.'
+    )
+  }
+
+  return {
+    statusCode: response.status,
+    target: cleanTarget,
+    body: responseBody,
+  }
 }
 
 async function postGoogleSheetBackup({ table, action, payload }) {
@@ -225,11 +326,13 @@ async function postGoogleSheetBackup({ table, action, payload }) {
 }
 
 async function getBackupRowsForBilling() {
+  const adminClient = getSupabaseAdmin()
+
   const backupRows = []
   const counts = {}
 
   async function addTableRows({ supabaseTable, sheetTable, action }) {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await adminClient
       .from(supabaseTable)
       .select('*')
       .order('created_at', { ascending: false })
@@ -361,98 +464,9 @@ async function handleBackupBillingData(req, res, user) {
   })
 }
 
-async function sendFonnteMessage({ target, message }) {
-  if (!fonnteToken) {
-    throw new Error('FONNTE_TOKEN belum diset di Vercel Environment Variables.')
-  }
-
-  const cleanTarget = String(target || '').replace(/\D/g, '')
-
-  if (!cleanTarget) {
-    throw new Error('Nomor WhatsApp target kosong / tidak valid.')
-  }
-
-  if (!message || !String(message).trim()) {
-    throw new Error('Isi pesan Fonnte kosong.')
-  }
-
-  const form = new URLSearchParams()
-  form.set('target', cleanTarget)
-  form.set('message', message)
-
-  const controller = new AbortController()
-
-  const timeout = setTimeout(() => {
-    controller.abort()
-  }, 12000)
-
-  let response
-
-  try {
-    response = await fetch('https://api.fonnte.com/send', {
-      method: 'POST',
-      headers: {
-        Authorization: fonnteToken,
-      },
-      body: form,
-      signal: controller.signal,
-    })
-  } catch (err) {
-    if (err?.name === 'AbortError') {
-      throw new Error(
-        'Fonnte timeout lebih dari 12 detik. Cek device Fonnte apakah online/connected.'
-      )
-    }
-
-    throw new Error(
-      `Gagal connect ke Fonnte: ${err.message || String(err)}`
-    )
-  } finally {
-    clearTimeout(timeout)
-  }
-
-  const rawText = await response.text()
-
-  let responseBody = null
-
-  try {
-    responseBody = JSON.parse(rawText)
-  } catch {
-    responseBody = {
-      raw: rawText,
-    }
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      responseBody?.reason ||
-        responseBody?.message ||
-        responseBody?.raw ||
-        `Fonnte error HTTP ${response.status}`
-    )
-  }
-
-  if (
-    responseBody &&
-    (responseBody.status === false ||
-      responseBody.status === 'false')
-  ) {
-    throw new Error(
-      responseBody.reason ||
-        responseBody.message ||
-        responseBody.raw ||
-        'Fonnte menolak pengiriman pesan.'
-    )
-  }
-
-  return {
-    statusCode: response.status,
-    target: cleanTarget,
-    body: responseBody,
-  }
-}
-
 async function handleSendInvoiceWhatsApp(req, res, user) {
+  const adminClient = getSupabaseAdmin()
+
   const body = parseBody(req)
   const invoiceId = body.invoice_id || body.invoiceId
 
@@ -463,10 +477,7 @@ async function handleSendInvoiceWhatsApp(req, res, user) {
     })
   }
 
-  const {
-    data: invoice,
-    error: invoiceError,
-  } = await supabaseAdmin
+  const { data: invoice, error: invoiceError } = await adminClient
     .from('ts_billing_invoices')
     .select(
       `
@@ -503,10 +514,7 @@ async function handleSendInvoiceWhatsApp(req, res, user) {
     })
   }
 
-  const {
-    data: client,
-    error: clientError,
-  } = await supabaseAdmin
+  const { data: client, error: clientError } = await adminClient
     .from('ts_clients')
     .select(
       `
@@ -559,10 +567,7 @@ async function handleSendInvoiceWhatsApp(req, res, user) {
     .filter(Boolean)
     .join('\n')
 
-  const {
-    data: updatedInvoice,
-    error: updateError,
-  } = await supabaseAdmin
+  const { data: updatedInvoice, error: updateError } = await adminClient
     .from('ts_billing_invoices')
     .update({
       status: 'unpaid',
@@ -590,6 +595,27 @@ async function handleSendInvoiceWhatsApp(req, res, user) {
 
   if (updateError) throw updateError
 
+  let backupResult = null
+  let backupError = null
+
+  try {
+    backupResult = await postGoogleSheetBackup({
+      table: 'invoices',
+      action: 'send_invoice_whatsapp',
+      payload: {
+        invoice: updatedInvoice,
+        client,
+        sent_to: phone,
+        sent_by: user.email,
+        sent_at: sentAt,
+        invoice_link: invoiceLink,
+        fonnte: fonnteResult,
+      },
+    })
+  } catch (err) {
+    backupError = err.message || 'Backup after Send WA gagal.'
+  }
+
   return res.status(200).json({
     ok: true,
     message: `Invoice ${invoice.invoice_no} berhasil dikirim via Fonnte.`,
@@ -604,14 +630,15 @@ async function handleSendInvoiceWhatsApp(req, res, user) {
       normalized_whatsapp: phone,
     },
     fonnte: fonnteResult,
+    backup: backupResult,
+    backup_error: backupError,
   })
 }
 
 async function handleGetPayments(req, res) {
-  const {
-    data: confirmations,
-    error: confirmationError,
-  } = await supabaseAdmin
+  const adminClient = getSupabaseAdmin()
+
+  const { data: confirmations, error: confirmationError } = await adminClient
     .from('ts_payment_confirmations')
     .select(
       `
@@ -644,24 +671,17 @@ async function handleGetPayments(req, res) {
 
   const invoiceIds = [
     ...new Set(
-      confirmations
-        .map((item) => item.invoice_id)
-        .filter(Boolean)
+      confirmations.map((item) => item.invoice_id).filter(Boolean)
     ),
   ]
 
   const clientIds = [
     ...new Set(
-      confirmations
-        .map((item) => item.client_id)
-        .filter(Boolean)
+      confirmations.map((item) => item.client_id).filter(Boolean)
     ),
   ]
 
-  const {
-    data: invoices,
-    error: invoiceError,
-  } = await supabaseAdmin
+  const { data: invoices, error: invoiceError } = await adminClient
     .from('ts_billing_invoices')
     .select(
       `
@@ -683,10 +703,7 @@ async function handleGetPayments(req, res) {
     throw invoiceError
   }
 
-  const {
-    data: clients,
-    error: clientError,
-  } = await supabaseAdmin
+  const { data: clients, error: clientError } = await adminClient
     .from('ts_clients')
     .select(
       `
@@ -703,40 +720,26 @@ async function handleGetPayments(req, res) {
   }
 
   const invoiceMap = new Map(
-    (invoices || []).map((invoice) => [
-      invoice.id,
-      invoice,
-    ])
+    (invoices || []).map((invoice) => [invoice.id, invoice])
   )
 
   const clientMap = new Map(
-    (clients || []).map((client) => [
-      client.id,
-      client,
-    ])
+    (clients || []).map((client) => [client.id, client])
   )
 
   const payments = await Promise.all(
     confirmations.map(async (confirmation) => {
-      const invoice =
-        invoiceMap.get(confirmation.invoice_id) || null
-
-      const client =
-        clientMap.get(confirmation.client_id) || null
+      const invoice = invoiceMap.get(confirmation.invoice_id) || null
+      const client = clientMap.get(confirmation.client_id) || null
 
       let signedSlipUrl = null
       let slipError = null
 
       if (confirmation.slip_url) {
-        const {
-          data: signedData,
-          error: signedError,
-        } = await supabaseAdmin.storage
-          .from('ts-billing-slips')
-          .createSignedUrl(
-            confirmation.slip_url,
-            15 * 60
-          )
+        const { data: signedData, error: signedError } =
+          await adminClient.storage
+            .from('ts-billing-slips')
+            .createSignedUrl(confirmation.slip_url, 15 * 60)
 
         if (signedError) {
           slipError = signedError.message
@@ -788,7 +791,7 @@ async function handleGetPayments(req, res) {
 
 export default async function handler(req, res) {
   try {
-    supabaseAdmin = getSupabaseAdmin()
+    getSupabaseAdmin()
 
     const user = await verifyAdmin(req)
 
@@ -806,7 +809,7 @@ export default async function handler(req, res) {
       if (body.action === 'backup_billing_data') {
         return handleBackupBillingData(req, res, user)
       }
-      
+
       return res.status(400).json({
         ok: false,
         error: 'Action POST tidak dikenal.',
@@ -830,8 +833,7 @@ export default async function handler(req, res) {
     if (error.message === 'FORBIDDEN') {
       return res.status(403).json({
         ok: false,
-        error:
-          'Akun ini tidak memiliki akses admin.',
+        error: 'Akun ini tidak memiliki akses admin.',
       })
     }
 
