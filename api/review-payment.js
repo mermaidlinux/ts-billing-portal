@@ -123,6 +123,25 @@ function getStatusLabel(status) {
   }
 }
 
+function openManualWhatsApp(manualWhatsapp) {
+  if (!manualWhatsapp?.url) {
+    alert('Nomor WhatsApp client kosong / tidak valid.')
+    return
+  }
+
+  window.open(manualWhatsapp.url, '_blank')
+}
+
+async function copyManualWhatsApp(manualWhatsapp) {
+  if (!manualWhatsapp?.text) {
+    alert('Pesan WhatsApp kosong.')
+    return
+  }
+
+  await navigator.clipboard.writeText(manualWhatsapp.text)
+  alert('Pesan WhatsApp berhasil dicopy.')
+}
+
 async function readJsonResponse(response) {
   const text = await response.text()
 
@@ -780,6 +799,9 @@ function AdminPage() {
   const [actionMessage, setActionMessage] =
     useState(null)
 
+  const [manualWhatsappResult, setManualWhatsappResult] =
+    useState(null)
+  
   const [
     rejectReasons,
     setRejectReasons,
@@ -902,6 +924,7 @@ function AdminPage() {
     setSession(null)
     setPayments([])
     setActionMessage(null)
+    setManualWhatsappResult(null)
   }
 
   async function callReviewEndpoint(
@@ -953,13 +976,14 @@ function AdminPage() {
     const confirmed = window.confirm(
       `Setujui pembayaran ${
         payment.invoice?.invoiceNo || ''
-      } milik ${clientName}?\n\nInvoice akan berubah menjadi LUNAS dan WhatsApp akan dikirim.`
+      } milik ${clientName}?\n\nInvoice akan berubah menjadi LUNAS.\n\nSetelah approve, sistem akan menyiapkan tombol Copy WA / Open WA untuk dikirim manual.`
     )
 
     if (!confirmed) return
 
     setActionId(payment.confirmationId)
     setActionMessage(null)
+    setManualWhatsappResult(null)
 
     try {
       const result =
@@ -967,22 +991,19 @@ function AdminPage() {
           action: 'approve',
         })
 
-      if (result.notificationSent) {
-        setActionMessage({
-          type: 'success',
-          text:
-            'Pembayaran berhasil disetujui dan WhatsApp lunas telah dikirim.',
-        })
-      } else {
-        setActionMessage({
-          type: 'warning',
-          text:
-            `Pembayaran sudah menjadi LUNAS, tetapi WhatsApp gagal dikirim: ${
-              result.notificationError ||
-              'Kesalahan tidak diketahui.'
-            }`,
-        })
-      }
+      setManualWhatsappResult({
+        type: 'approve',
+        title: 'WhatsApp Manual — Pembayaran Lunas',
+        clientName,
+        invoiceNo: payment.invoice?.invoiceNo || '-',
+        manualWhatsapp: result.manualWhatsapp,
+      })
+
+      setActionMessage({
+        type: 'success',
+        text:
+          'Pembayaran berhasil disetujui. Klik Copy WA atau Open WA untuk kirim manual ke client.',
+      })
 
       await loadPayments(session)
     } catch (approveError) {
@@ -1022,13 +1043,14 @@ function AdminPage() {
     const confirmed = window.confirm(
       `Tolak pembayaran ${
         payment.invoice?.invoiceNo || ''
-      } milik ${clientName}?\n\nClient akan menerima WhatsApp dan dapat upload ulang.`
+      } milik ${clientName}?\n\nClient dapat upload ulang setelah ditolak.\n\nSetelah reject, sistem akan menyiapkan tombol Copy WA / Open WA untuk dikirim manual.`
     )
 
     if (!confirmed) return
 
     setActionId(confirmationId)
     setActionMessage(null)
+    setManualWhatsappResult(null)
 
     try {
       const result =
@@ -1038,22 +1060,19 @@ function AdminPage() {
           rejectNote: rejectNote.trim(),
         })
 
-      if (result.notificationSent) {
-        setActionMessage({
-          type: 'success',
-          text:
-            'Pembayaran ditolak dan WhatsApp alasan penolakan telah dikirim.',
-        })
-      } else {
-        setActionMessage({
-          type: 'warning',
-          text:
-            `Pembayaran sudah ditolak dan client dapat upload ulang, tetapi WhatsApp gagal dikirim: ${
-              result.notificationError ||
-              'Kesalahan tidak diketahui.'
-            }`,
-        })
-      }
+      setManualWhatsappResult({
+        type: 'reject',
+        title: 'WhatsApp Manual — Pembayaran Ditolak',
+        clientName,
+        invoiceNo: payment.invoice?.invoiceNo || '-',
+        manualWhatsapp: result.manualWhatsapp,
+      })
+
+      setActionMessage({
+        type: 'success',
+        text:
+          'Pembayaran berhasil ditolak. Klik Copy WA atau Open WA untuk kirim manual ke client.',
+      })
 
       setRejectReasons((current) => {
         const next = { ...current }
@@ -1340,6 +1359,61 @@ function AdminPage() {
             </div>
           )}
 
+          {manualWhatsappResult && (
+            <div className="adminAlert success">
+              <strong>{manualWhatsappResult.title}</strong>
+          
+              <p>
+                Client: {manualWhatsappResult.clientName}
+                <br />
+                Invoice: {manualWhatsappResult.invoiceNo}
+              </p>
+          
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 10,
+                  flexWrap: 'wrap',
+                  marginTop: 10,
+                }}
+              >
+                <button
+                  type="button"
+                  className="adminSecondaryButton"
+                  onClick={() =>
+                    copyManualWhatsApp(
+                      manualWhatsappResult.manualWhatsapp
+                    )
+                  }
+                >
+                  Copy WA
+                </button>
+          
+                <button
+                  type="button"
+                  className="adminPrimaryButton"
+                  onClick={() =>
+                    openManualWhatsApp(
+                      manualWhatsappResult.manualWhatsapp
+                    )
+                  }
+                >
+                  Open WA
+                </button>
+          
+                <button
+                  type="button"
+                  className="adminSecondaryButton"
+                  onClick={() =>
+                    setManualWhatsappResult(null)
+                  }
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          )}
+                  
           {paymentsError && (
             <div className="adminAlert error">
               {paymentsError}
