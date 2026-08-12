@@ -953,13 +953,14 @@ function AdminPage() {
     const confirmed = window.confirm(
       `Setujui pembayaran ${
         payment.invoice?.invoiceNo || ''
-      } milik ${clientName}?\n\nInvoice akan berubah menjadi LUNAS dan WhatsApp akan dikirim.`
+      } milik ${clientName}?\n\nInvoice akan berubah menjadi LUNAS.\n\nSetelah approve, sistem akan menyiapkan tombol Copy WA / Open WA untuk dikirim manual.`
     )
 
     if (!confirmed) return
 
     setActionId(payment.confirmationId)
     setActionMessage(null)
+    setManualWhatsappResult(null)
 
     try {
       const result =
@@ -967,22 +968,19 @@ function AdminPage() {
           action: 'approve',
         })
 
-      if (result.notificationSent) {
-        setActionMessage({
-          type: 'success',
-          text:
-            'Pembayaran berhasil disetujui dan WhatsApp lunas telah dikirim.',
-        })
-      } else {
-        setActionMessage({
-          type: 'warning',
-          text:
-            `Pembayaran sudah menjadi LUNAS, tetapi WhatsApp gagal dikirim: ${
-              result.notificationError ||
-              'Kesalahan tidak diketahui.'
-            }`,
-        })
-      }
+      setManualWhatsappResult({
+        type: 'approve',
+        title: 'WhatsApp Manual — Pembayaran Lunas',
+        clientName,
+        invoiceNo: payment.invoice?.invoiceNo || '-',
+        manualWhatsapp: result.manualWhatsapp,
+      })
+
+      setActionMessage({
+        type: 'success',
+        text:
+          'Pembayaran berhasil disetujui. Klik Copy WA atau Open WA untuk kirim manual ke client.',
+      })
 
       await loadPayments(session)
     } catch (approveError) {
@@ -1022,13 +1020,14 @@ function AdminPage() {
     const confirmed = window.confirm(
       `Tolak pembayaran ${
         payment.invoice?.invoiceNo || ''
-      } milik ${clientName}?\n\nClient akan menerima WhatsApp dan dapat upload ulang.`
+      } milik ${clientName}?\n\nClient dapat upload ulang setelah ditolak.\n\nSetelah reject, sistem akan menyiapkan tombol Copy WA / Open WA untuk dikirim manual.`
     )
 
     if (!confirmed) return
 
     setActionId(confirmationId)
     setActionMessage(null)
+    setManualWhatsappResult(null)
 
     try {
       const result =
@@ -1038,22 +1037,19 @@ function AdminPage() {
           rejectNote: rejectNote.trim(),
         })
 
-      if (result.notificationSent) {
-        setActionMessage({
-          type: 'success',
-          text:
-            'Pembayaran ditolak dan WhatsApp alasan penolakan telah dikirim.',
-        })
-      } else {
-        setActionMessage({
-          type: 'warning',
-          text:
-            `Pembayaran sudah ditolak dan client dapat upload ulang, tetapi WhatsApp gagal dikirim: ${
-              result.notificationError ||
-              'Kesalahan tidak diketahui.'
-            }`,
-        })
-      }
+      setManualWhatsappResult({
+        type: 'reject',
+        title: 'WhatsApp Manual — Pembayaran Ditolak',
+        clientName,
+        invoiceNo: payment.invoice?.invoiceNo || '-',
+        manualWhatsapp: result.manualWhatsapp,
+      })
+
+      setActionMessage({
+        type: 'success',
+        text:
+          'Pembayaran berhasil ditolak. Klik Copy WA atau Open WA untuk kirim manual ke client.',
+      })
 
       setRejectReasons((current) => {
         const next = { ...current }
