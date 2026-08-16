@@ -641,6 +641,17 @@ async function handleManualPaidInvoice(req, res, user) {
   const body = parseBody(req)
   const invoiceId = body.invoice_id || body.invoiceId
 
+  const confirmText = String(
+    body.confirm_text || body.confirmText || ''
+  ).trim()
+
+  if (confirmText !== 'PAID') {
+    return res.status(400).json({
+      ok: false,
+      error: 'Konfirmasi manual paid tidak valid. Ketik PAID untuk melanjutkan.',
+    })
+  }
+  
   if (!invoiceId) {
     return res.status(400).json({
       ok: false,
@@ -773,6 +784,168 @@ async function handleManualPaidInvoice(req, res, user) {
   return res.status(200).json({
     ok: true,
     message: `Invoice ${invoice.invoice_no} berhasil diubah menjadi PAID secara manual.`,
+    invoice: updatedInvoice,
+    backup: backupResult,
+    backup_error: backupError,
+  })
+}
+
+async function handleRevertInvoiceStatus(req, res, user) {
+  const adminClient = getSupabaseAdmin()
+
+  const body = parseBody(req)
+
+  const invoiceId = body.invoice_id || body.invoiceId
+  const targetStatus = String(body.target_status || body.targetStatus || '').trim()
+  const confirmText = String(body.confirm_text || body.confirmText || '').trim()
+
+  if (!invoiceId) {
+    return res.status(400).json({
+      ok: false,
+      error: 'invoice_id wajib dikirim.',
+    })
+  }
+
+  if (!['draft', 'unpaid'].includes(targetStatus)) {
+    return res.status(400).json({
+      ok: false,
+      error: 'target_status hanya boleh draft atau unpaid.',
+    })
+  }
+
+  if (confirmText !== 'REVERT') {
+    return res.status(400).json({
+      ok: false,
+      error: 'Konfirmasi revert tidak valid. Ketik REVERT untuk melanjutkan.',
+    })
+  }
+
+  const { data: invoice, error: invoiceError } = await adminClient
+    .from('ts_billing_invoices')
+    .select(
+      `
+        id,
+        invoice_no,
+        token,
+        client_id,
+        total_amount,
+        period_start,
+        period_end,
+        due_date,
+        grace_until,
+        status,
+        sent_at,
+        submitted_at,
+        paid_at,
+        notes,
+        ts_clients (
+          client_name,
+          whatsapp,
+          email
+        )
+      `
+    )
+    .eq('id', invoiceId)
+    .maybeSingle()
+
+  if (invoiceError) throw invoiceError
+
+  if (!invoice) {
+    return res.status(404).json({
+      ok: false,
+      error: 'Invoice tidak ditemukan.',
+    })
+  }
+
+  if (['cancelled', 'suspended'].includes(invoice.status)) {
+    return res.status(400).json({
+      ok: false,
+      error: `Invoice status ${invoice.status} tidak boleh direvert dari tombol ini.`,
+    })
+  }
+
+  if (invoice.status === targetStatus) {
+    return res.status(200).json({
+      ok: true,
+      already_same_status: true,
+      message: `Invoice ${invoice.invoice_no} sudah berstatus ${targetStatus}.`,
+      invoice,
+    })
+  }
+
+  const now = new Date().toISOString()
+
+  const updatePayload = {
+    status: targetStatus,
+    paid_at: null,
+    updated_at: now,
+    notes: [
+      invoice.notes || '',
+      `Manual revert by ${user.email} at ${now}. From ${invoice.status} to ${targetStatus}.`,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  }
+
+  if (targetStatus === 'draft') {
+    updatePayload.sent_at = null
+    updatePayload.submitted_at = null
+  }
+
+  if (targetStatus === 'unpaid') {
+    updatePayload.submitted_at = null
+  }
+
+  const { data: updatedInvoice, error: updateError } = await adminClient
+    .from('ts_billing_invoices')
+    .update(updatePayload)
+    .eq('id', invoice.id)
+    .select(
+      `
+        id,
+        invoice_no,
+        token,
+        client_id,
+        total_amount,
+        period_start,
+        period_end,
+        due_date,
+        grace_until,
+        status,
+        sent_at,
+        submitted_at,
+        paid_at,
+        updated_at,
+        notes
+      `
+    )
+    .maybeSingle()
+
+  if (updateError) throw updateError
+
+  let backupResult = null
+  let backupError = null
+
+  try {
+    backupResult = await postGoogleSheetBackup({
+      table: 'invoices',
+      action: 'revert_invoice_status',
+      payload: {
+        invoice: updatedInvoice,
+        client: invoice.ts_clients || null,
+        reverted_by: user.email,
+        reverted_at: now,
+        from_status: invoice.status,
+        to_status: targetStatus,
+      },
+    })
+  } catch (err) {
+    backupError = err.message || 'Backup after Revert Status gagal.'
+  }
+
+  return res.status(200).json({
+    ok: true,
+    message: `Invoice ${invoice.invoice_no} berhasil direvert ke ${targetStatus.toUpperCase()}.`,
     invoice: updatedInvoice,
     backup: backupResult,
     backup_error: backupError,
@@ -952,6 +1125,10 @@ export default async function handler(req, res) {
 
       if (body.action === 'manual_paid_invoice') {
         return handleManualPaidInvoice(req, res, user)
+      }
+
+      if (body.action === 'revert_invoice_status') {
+        return handleRevertInvoiceStatus(req, res, user)
       }
       
       if (body.action === 'backup_billing_data') {
