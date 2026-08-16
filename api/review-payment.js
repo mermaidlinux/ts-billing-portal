@@ -1,1730 +1,438 @@
-import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import AdminNetwork from './AdminNetwork.jsx'
-import AdminActivityLogs from './AdminActivityLogs.jsx'
-import AdminShell from './AdminShell.jsx'
-import AdminPsSettings from './AdminPsSettings.jsx'
-import AdminPsRequests from './AdminPsRequests.jsx'
-import AdminBillingSetup from './AdminBillingSetup.jsx'
 
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-)
+let supabaseAdmin = null
 
-const STORAGE_BUCKET = 'ts-billing-slips'
-const MAX_FILE_SIZE = 10 * 1024 * 1024
+function getSupabaseAdmin() {
+  if (supabaseAdmin) return supabaseAdmin
 
-const REJECT_OPTIONS = [
-  {
-    value: 'nominal_kurang',
-    label: 'Nominal pembayaran kurang',
-  },
-  {
-    value: 'nominal_tidak_sesuai',
-    label: 'Nominal pembayaran tidak sesuai invoice',
-  },
-  {
-    value: 'bukti_tidak_jelas',
-    label: 'Bukti transfer kurang jelas',
-  },
-  {
-    value: 'bukti_terpotong',
-    label: 'Bukti transfer terpotong',
-  },
-  {
-    value: 'rekening_tujuan_tidak_sesuai',
-    label: 'Rekening tujuan tidak sesuai',
-  },
-  {
-    value: 'transaksi_pending',
-    label: 'Transaksi masih pending',
-  },
-  {
-    value: 'tanggal_tidak_sesuai',
-    label: 'Tanggal transaksi tidak sesuai',
-  },
-  {
-    value: 'invoice_lain',
-    label: 'Pembayaran untuk invoice lain',
-  },
-  {
-    value: 'bukti_duplikat',
-    label: 'Bukti yang sama sudah pernah digunakan',
-  },
-  {
-    value: 'lainnya',
-    label: 'Alasan lainnya',
-  },
-]
+  const supabaseUrl = String(process.env.VITE_SUPABASE_URL || '').trim()
+  const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
+
+  if (!supabaseUrl) {
+    throw new Error('VITE_SUPABASE_URL belum diset di Vercel.')
+  }
+
+  if (!serviceRoleKey) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY belum diset di Vercel.')
+  }
+
+  supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  })
+
+  return supabaseAdmin
+}
+
+const REJECT_REASONS = {
+  nominal_kurang:
+    'Nominal pembayaran yang diterima masih kurang dari total tagihan.',
+
+  nominal_tidak_sesuai:
+    'Nominal pembayaran belum sesuai dengan total invoice.',
+
+  bukti_tidak_jelas:
+    'Bukti transfer kurang jelas sehingga detail transaksi belum dapat dibaca.',
+
+  bukti_terpotong:
+    'Bukti transfer terpotong sehingga informasi transaksi belum lengkap.',
+
+  rekening_tujuan_tidak_sesuai:
+    'Pembayaran tercatat ke rekening tujuan yang tidak sesuai.',
+
+  transaksi_pending:
+    'Status transaksi pada bukti pembayaran masih pending atau belum berhasil.',
+
+  tanggal_tidak_sesuai:
+    'Tanggal transaksi pada bukti pembayaran belum sesuai dengan periode invoice.',
+
+  invoice_lain:
+    'Bukti pembayaran yang dikirim terhubung dengan invoice lain.',
+
+  bukti_duplikat:
+    'Bukti pembayaran yang sama sudah pernah digunakan sebelumnya.',
+
+  lainnya:
+    'Pembayaran belum dapat diverifikasi berdasarkan hasil pemeriksaan admin.',
+}
+
+function parseBody(req) {
+  if (!req.body) return {}
+
+  if (typeof req.body === 'string') {
+    try {
+      return JSON.parse(req.body)
+    } catch {
+      return {}
+    }
+  }
+
+  return req.body
+}
+
+function normalizeWhatsAppNumber(value) {
+  let number = String(value || '')
+    .replace(/\D/g, '')
+    .trim()
+
+  if (number.startsWith('0')) {
+    number = `62${number.slice(1)}`
+  } else if (number.startsWith('8')) {
+    number = `62${number}`
+  }
+
+  return number
+}
 
 function formatRupiah(value) {
-  const number = Number(value || 0)
+  const amount = Number(value || 0)
 
-  return `Rp${number.toLocaleString('id-ID')}`
+  return `Rp${amount.toLocaleString('id-ID')}`
 }
 
-function formatDateTime(value) {
-  if (!value) return '-'
+function formatPeriod(startDate, endDate) {
+  if (!startDate && !endDate) return '-'
+  if (!endDate) return startDate
 
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-
-  return date.toLocaleString('id-ID', {
-    timeZone: 'Asia/Jakarta',
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  })
+  return `${startDate} s/d ${endDate}`
 }
 
-function getTokenFromPath() {
-  const parts = window.location.pathname
-    .split('/')
+function getAllowedAdminEmails() {
+  return String(process.env.BILLING_ADMIN_EMAIL || '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
     .filter(Boolean)
+}
 
-  if (parts[0] === 'pay' && parts[1]) {
-    return parts[1]
+async function verifyAdmin(req) {
+  const adminClient = getSupabaseAdmin()
+
+  const authorization = String(req.headers.authorization || '')
+
+  if (!authorization.startsWith('Bearer ')) {
+    throw new Error('UNAUTHORIZED')
   }
 
-  return null
+  const accessToken = authorization.slice(7).trim()
+
+  const {
+    data: { user },
+    error,
+  } = await adminClient.auth.getUser(accessToken)
+
+  if (error || !user?.email) {
+    throw new Error('UNAUTHORIZED')
+  }
+
+  const allowedEmails = getAllowedAdminEmails()
+
+  if (!allowedEmails.includes(user.email.toLowerCase())) {
+    throw new Error('FORBIDDEN')
+  }
+
+  return user
 }
 
-function isAdminPath() {
-  return (
-    window.location.pathname === '/admin' ||
-    window.location.pathname.startsWith('/admin/')
-  )
+function buildApprovedMessage(invoice, clientName) {
+  return `Halo Kak ${clientName} 👋
+
+Pembayaran untuk invoice ${invoice.invoice_no} sebesar ${formatRupiah(
+    invoice.total_amount
+  )} telah kami terima dan berhasil diverifikasi.
+
+✅ Status pembayaran: LUNAS
+📅 Periode layanan: ${formatPeriod(
+    invoice.period_start,
+    invoice.period_end
+  )}
+📌 Layanan Anda tetap aktif.
+
+Terima kasih atas pembayaran dan kepercayaannya kepada TERNAKSUKSES.
+
+—
+TERNAKSUKSES Billing`
 }
 
-function getStatusLabel(status) {
-  switch (String(status || '').toLowerCase()) {
-    case 'paid':
-      return '🟢 Sudah Dibayar'
+function buildRejectedMessage({
+  invoice,
+  clientName,
+  rejectionMessage,
+}) {
+  const baseUrl =
+    process.env.BILLING_BASE_URL ||
+    'https://ts-billing-portal.vercel.app'
 
-    case 'submitted':
-      return '🟡 Menunggu Verifikasi'
+  const invoiceLink = `${baseUrl}/pay/${invoice.token}`
 
-    case 'overdue':
-      return '🔴 Jatuh Tempo'
+  return `Halo Kak ${clientName} 👋
 
-    case 'suspended':
-      return '🔴 Fasilitas Dihentikan'
+Terima kasih, bukti pembayaran untuk invoice ${invoice.invoice_no} sudah kami periksa.
 
-    case 'cancelled':
-      return '⚫ Dibatalkan'
+Saat ini pembayaran belum dapat kami verifikasi karena:
 
-    case 'draft':
-    case 'sent':
-    default:
-      return '🟠 Menunggu Pembayaran'
+${rejectionMessage}
+
+Silakan periksa kembali pembayaran Anda, lalu unggah ulang bukti transfer melalui link berikut:
+
+${invoiceLink}
+
+Jika membutuhkan bantuan, silakan hubungi Admin. Kami siap membantu.
+
+—
+TERNAKSUKSES Billing`
+}
+
+function buildManualWhatsapp({ whatsapp, message }) {
+  const phone = normalizeWhatsAppNumber(whatsapp)
+
+  return {
+    phone,
+    text: message,
+    url: phone
+      ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
+      : '',
   }
 }
 
-function openManualWhatsApp(manualWhatsapp) {
-  if (!manualWhatsapp?.url) {
-    alert('Nomor WhatsApp client kosong / tidak valid.')
-    return
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({
+      ok: false,
+      error: 'Only POST requests are allowed.',
+    })
   }
-
-  window.open(manualWhatsapp.url, '_blank')
-}
-
-async function copyManualWhatsApp(manualWhatsapp) {
-  if (!manualWhatsapp?.text) {
-    alert('Pesan WhatsApp kosong.')
-    return
-  }
-
-  await navigator.clipboard.writeText(manualWhatsapp.text)
-  alert('Pesan WhatsApp berhasil dicopy.')
-}
-
-async function readJsonResponse(response) {
-  const text = await response.text()
 
   try {
-    return text ? JSON.parse(text) : {}
-  } catch {
-    return {
-      ok: false,
-      error: text || 'Respons server tidak valid.',
-    }
-  }
-}
+    const adminClient = getSupabaseAdmin()
+    const adminUser = await verifyAdmin(req)
+    const body = parseBody(req)
 
-function InvoicePage() {
-  const token = useMemo(() => getTokenFromPath(), [])
+    const {
+      confirmationId,
+      action,
+      rejectReason,
+      rejectNote,
+    } = body
 
-  const [loading, setLoading] = useState(Boolean(token))
-  const [error, setError] = useState('')
-  const [invoice, setInvoice] = useState(null)
-  const [items, setItems] = useState([])
-
-  const [uploadFile, setUploadFile] = useState(null)
-  const [paymentNote, setPaymentNote] = useState('')
-  const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState('')
-  const [uploadSuccess, setUploadSuccess] = useState('')
-  const [copyNotice, setCopyNotice] = useState('')
-  const [fileInputKey, setFileInputKey] = useState(0)
-
-  useEffect(() => {
-    async function loadInvoice() {
-      if (!token) return
-
-      setLoading(true)
-      setError('')
-
-      const {
-        data: invoiceData,
-        error: invoiceError,
-      } = await supabase
-        .from('ts_billing_invoices')
-        .select(
-          '*, ts_clients(client_name, whatsapp, email)'
-        )
-        .eq('token', token)
-        .maybeSingle()
-
-      if (invoiceError) {
-        setError(invoiceError.message)
-        setLoading(false)
-        return
-      }
-
-      if (!invoiceData) {
-        setError(
-          'Invoice tidak ditemukan atau link tidak valid.'
-        )
-        setLoading(false)
-        return
-      }
-
-      const {
-        data: invoiceItems,
-        error: itemError,
-      } = await supabase
-        .from('ts_billing_invoice_items')
-        .select('*')
-        .eq('invoice_id', invoiceData.id)
-        .order('created_at', {
-          ascending: true,
-        })
-
-      if (itemError) {
-        setError(itemError.message)
-        setLoading(false)
-        return
-      }
-
-      setInvoice(invoiceData)
-      setItems(invoiceItems || [])
-      setLoading(false)
+    if (!confirmationId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Confirmation ID belum tersedia.',
+      })
     }
 
-    loadInvoice()
-  }, [token])
+    if (!['approve', 'reject'].includes(action)) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Action harus approve atau reject.',
+      })
+    }
 
-  async function copyText(text, successMessage) {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopyNotice(successMessage)
-
-      window.setTimeout(() => {
-        setCopyNotice('')
-      }, 2500)
-    } catch {
-      setCopyNotice(
-        'Gagal menyalin. Silakan salin secara manual.'
+    const {
+      data: confirmation,
+      error: confirmationError,
+    } = await adminClient
+      .from('ts_payment_confirmations')
+      .select(
+        `
+          id,
+          invoice_id,
+          client_id,
+          status,
+          payment_note
+        `
       )
-    }
-  }
+      .eq('id', confirmationId)
+      .maybeSingle()
 
-  function handleFileChange(event) {
-    const selectedFile =
-      event.target.files?.[0] || null
+    if (confirmationError) throw confirmationError
 
-    setUploadError('')
-    setUploadSuccess('')
-
-    if (!selectedFile) {
-      setUploadFile(null)
-      return
+    if (!confirmation) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Konfirmasi pembayaran tidak ditemukan.',
+      })
     }
 
-    const allowedTypes = [
-      'image/jpeg',
-      'image/png',
-      'application/pdf',
-    ]
-
-    if (!allowedTypes.includes(selectedFile.type)) {
-      setUploadFile(null)
-      setUploadError(
-        'File harus berupa JPG, PNG, atau PDF.'
-      )
-      setFileInputKey((current) => current + 1)
-      return
+    if (confirmation.status !== 'waiting_verification') {
+      return res.status(400).json({
+        ok: false,
+        error: 'Konfirmasi pembayaran ini sudah pernah diproses.',
+      })
     }
 
-    if (selectedFile.size > MAX_FILE_SIZE) {
-      setUploadFile(null)
-      setUploadError(
-        'Ukuran file maksimal 10 MB.'
-      )
-      setFileInputKey((current) => current + 1)
-      return
-    }
-
-    setUploadFile(selectedFile)
-  }
-
-  async function handleSubmitPayment(event) {
-    event.preventDefault()
-
-    if (!invoice || !token) {
-      setUploadError(
-        'Data invoice belum tersedia.'
-      )
-      return
-    }
-
-    if (!uploadFile) {
-      setUploadError(
-        'Silakan pilih bukti transfer terlebih dahulu.'
-      )
-      return
-    }
-
-    setUploading(true)
-    setUploadError('')
-    setUploadSuccess('')
-
-    try {
-      const prepareResponse = await fetch(
-        '/api/create-upload-url',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            invoiceToken: token,
-            fileName: uploadFile.name,
-            contentType: uploadFile.type,
-          }),
-        }
-      )
-
-      const prepareResult =
-        await readJsonResponse(prepareResponse)
-
-      if (
-        !prepareResponse.ok ||
-        !prepareResult.ok
-      ) {
-        throw new Error(
-          prepareResult.error ||
-            'Gagal menyiapkan upload bukti transfer.'
-        )
-      }
-
-      const { error: storageError } =
-        await supabase.storage
-          .from(STORAGE_BUCKET)
-          .uploadToSignedUrl(
-            prepareResult.storagePath,
-            prepareResult.uploadToken,
-            uploadFile,
-            {
-              contentType: uploadFile.type,
-            }
+    const {
+      data: invoice,
+      error: invoiceError,
+    } = await adminClient
+      .from('ts_billing_invoices')
+      .select(
+        `
+          id,
+          invoice_no,
+          token,
+          total_amount,
+          period_start,
+          period_end,
+          status,
+          client_id,
+          ts_clients (
+            client_name,
+            whatsapp
           )
-
-      if (storageError) {
-        throw storageError
-      }
-
-      const submitResponse = await fetch(
-        '/api/submit-payment',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            invoiceToken: token,
-            storagePath:
-              prepareResult.storagePath,
-            amountClaimed: Number(
-              invoice.total_amount || 0
-            ),
-            paymentNote: paymentNote.trim(),
-          }),
-        }
+        `
       )
+      .eq('id', confirmation.invoice_id)
+      .maybeSingle()
 
-      const submitResult =
-        await readJsonResponse(submitResponse)
+    if (invoiceError) throw invoiceError
 
-      if (
-        !submitResponse.ok ||
-        !submitResult.ok
-      ) {
-        throw new Error(
-          submitResult.error ||
-            'Gagal mencatat konfirmasi pembayaran.'
-        )
-      }
-
-      setInvoice((currentInvoice) => ({
-        ...currentInvoice,
-        status: 'submitted',
-        submitted_at: new Date().toISOString(),
-      }))
-
-      setUploadFile(null)
-      setPaymentNote('')
-      setFileInputKey((current) => current + 1)
-
-      setUploadSuccess(
-        'Bukti pembayaran berhasil dikirim dan sedang menunggu verifikasi admin.'
-      )
-    } catch (submitError) {
-      setUploadError(
-        submitError.message ||
-          'Terjadi kesalahan saat mengirim pembayaran.'
-      )
-    } finally {
-      setUploading(false)
+    if (!invoice) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Invoice tidak ditemukan.',
+      })
     }
-  }
-
-  if (!token) {
-    return (
-      <main className="page">
-        <section className="card center">
-          <h1>TERNAKSUKSES Billing</h1>
-
-          <p>
-            Silakan buka link invoice yang dikirim
-            oleh admin.
-          </p>
-        </section>
-      </main>
-    )
-  }
-
-  if (loading) {
-    return (
-      <main className="page">
-        <section className="card center">
-          <h1>TERNAKSUKSES Billing</h1>
-
-          <p>Memuat invoice...</p>
-        </section>
-      </main>
-    )
-  }
-
-  if (error) {
-    return (
-      <main className="page">
-        <section className="card center">
-          <h1>Invoice Error</h1>
-
-          <p>{error}</p>
-        </section>
-      </main>
-    )
-  }
-
-  const currentStatus = String(
-    invoice.status || ''
-  ).toLowerCase()
-
-  const canUpload = ![
-    'paid',
-    'submitted',
-    'cancelled',
-    'suspended',
-  ].includes(currentStatus)
-
-  return (
-    <main className="page">
-      <section className="card">
-        <div className="header">
-          <div className="brandLeft">
-            <img
-              src="/logo-ternaksukses.png"
-              className="brandLogo"
-              alt="TERNAKSUKSES"
-            />
-
-            <div>
-              <p className="eyebrow">
-                TERNAKSUKSES
-              </p>
-
-              <h1 className="invoiceTitle">
-                Invoice Pembayaran
-              </h1>
-            </div>
-          </div>
-
-          <span
-            className={`badge ${currentStatus}`}
-          >
-            {getStatusLabel(currentStatus)}
-          </span>
-        </div>
-
-        <div className="clientBox">
-          <div className="helloText">
-            Halo,
-          </div>
-
-          <div className="clientName">
-            {invoice.ts_clients?.client_name ||
-              'Client'}{' '}
-            👋
-          </div>
-
-          <p>Berikut detail tagihan Anda.</p>
-        </div>
-
-        <div className="metaGrid">
-          <div>
-            <span>Invoice</span>
-            <strong>{invoice.invoice_no}</strong>
-          </div>
-
-          <div>
-            <span>Periode</span>
-
-            <strong>
-              {invoice.period_start} s/d{' '}
-              {invoice.period_end}
-            </strong>
-          </div>
-
-          <div>
-            <span>Due Date</span>
-            <strong>{invoice.due_date}</strong>
-          </div>
-
-          <div>
-            <span>Grace Until</span>
-            <strong>{invoice.grace_until}</strong>
-          </div>
-        </div>
-
-        <h2>Detail Tagihan</h2>
-
-        <div className="tableWrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Layanan</th>
-                <th>Keterangan</th>
-
-                <th className="right">
-                  Nominal
-                </th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.service_type}</td>
-                  <td>{item.description}</td>
-
-                  <td className="right">
-                    {formatRupiah(item.amount)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-
-            <tfoot>
-              <tr>
-                <td colSpan="2">Total</td>
-
-                <td className="right">
-                  {formatRupiah(
-                    invoice.total_amount
-                  )}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-
-        <div className="paymentBox">
-          <h2>Pembayaran</h2>
-
-          <p>Silakan transfer ke:</p>
-
-          <p>
-            <strong>
-              Bank BLU by BCA Digital
-            </strong>
-          </p>
-
-          <div className="rekeningRow">
-            <span>No. Rek:</span>
-
-            <strong>001138111111</strong>
-
-            <button
-              type="button"
-              className="copyButton"
-              onClick={() =>
-                copyText(
-                  '001138111111',
-                  'Nomor rekening berhasil disalin.'
-                )
-              }
-              aria-label="Salin nomor rekening"
-            >
-              📋
-            </button>
-          </div>
-
-          <p>
-            a.n. <strong>Marlene</strong>
-          </p>
-
-          <button
-            type="button"
-            className="copyDetailButton"
-            onClick={() =>
-              copyText(
-                `Bank BLU by BCA Digital
-No. Rek: 001138111111
-a.n. Marlene
-Total: ${formatRupiah(
-                  invoice.total_amount
-                )}
-Invoice: ${invoice.invoice_no}`,
-                'Detail pembayaran berhasil disalin.'
-              )
-            }
-          >
-            📋 Copy Semua Detail
-          </button>
-
-          {copyNotice && (
-            <div className="copyNotice">
-              {copyNotice}
-            </div>
-          )}
-        </div>
-
-        {uploadSuccess && (
-          <div className="formSuccess">
-            {uploadSuccess}
-          </div>
-        )}
-
-        {currentStatus === 'paid' && (
-          <div className="notice paymentDoneNotice">
-            ✅ Pembayaran invoice ini sudah
-            diterima dan diverifikasi.
-          </div>
-        )}
-
-        {currentStatus === 'submitted' && (
-          <div className="notice verificationNotice">
-            🟡 Bukti pembayaran sudah dikirim
-            dan sedang menunggu verifikasi admin.
-          </div>
-        )}
-
-        {currentStatus === 'cancelled' && (
-          <div className="notice cancelledNotice">
-            Invoice ini sudah dibatalkan.
-          </div>
-        )}
-
-        {currentStatus === 'suspended' && (
-          <div className="notice cancelledNotice">
-            Fasilitas dihentikan karena pembayaran
-            melewati batas waktu. Silakan hubungi
-            admin.
-          </div>
-        )}
-
-        {canUpload && (
-          <section className="uploadBox">
-            <h2>Upload Bukti Transfer</h2>
-
-            <p>
-              Pilih bukti transfer dalam format
-              JPG, PNG, atau PDF. Ukuran maksimal
-              10 MB.
-            </p>
-
-            <form
-              className="uploadForm"
-              onSubmit={handleSubmitPayment}
-            >
-              <label className="fileInputLabel">
-                <span>
-                  {uploadFile
-                    ? 'Ganti Bukti Transfer'
-                    : 'Pilih Bukti Transfer'}
-                </span>
-
-                <input
-                  key={fileInputKey}
-                  type="file"
-                  className="fileInput"
-                  accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
-                  onChange={handleFileChange}
-                  disabled={uploading}
-                />
-              </label>
-
-              {uploadFile && (
-                <div className="selectedFile">
-                  <span>
-                    📎 {uploadFile.name}
-                  </span>
-
-                  <span>
-                    {(
-                      uploadFile.size /
-                      1024 /
-                      1024
-                    ).toFixed(2)}{' '}
-                    MB
-                  </span>
-                </div>
-              )}
-
-              <label className="paymentNoteLabel">
-                Catatan pembayaran
-                <span> opsional</span>
-
-                <textarea
-                  className="paymentNoteInput"
-                  value={paymentNote}
-                  onChange={(event) =>
-                    setPaymentNote(
-                      event.target.value
-                    )
-                  }
-                  placeholder="Contoh: Transfer dari rekening atas nama pengirim."
-                  rows="3"
-                  maxLength="500"
-                  disabled={uploading}
-                />
-              </label>
-
-              {uploadError && (
-                <div className="formError">
-                  {uploadError}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                className="submitPaymentButton"
-                disabled={
-                  uploading || !uploadFile
-                }
-              >
-                {uploading
-                  ? 'Mengirim Bukti Pembayaran...'
-                  : 'Kirim Bukti Pembayaran'}
-              </button>
-            </form>
-          </section>
-        )}
-
-        <footer className="footer">
-          <strong>TERNAKSUKSES</strong>
-
-          <p>
-            Terima kasih telah mempercayai sistem
-            kami.
-          </p>
-        </footer>
-      </section>
-    </main>
-  )
-}
-
-function AdminPage() {
-  const [authLoading, setAuthLoading] =
-    useState(true)
-
-  const [session, setSession] =
-    useState(null)
-
-  const [email, setEmail] =
-    useState('')
-
-  const [password, setPassword] =
-    useState('')
-
-  const [loginLoading, setLoginLoading] =
-    useState(false)
-
-  const [loginError, setLoginError] =
-    useState('')
-
-  const [activeAdminMenu, setActiveAdminMenu] =
-    useState('home')
-
-  const [payments, setPayments] =
-    useState([])
-
-  const [
-    paymentsLoading,
-    setPaymentsLoading,
-  ] = useState(false)
-
-  const [paymentsError, setPaymentsError] =
-    useState('')
-
-  const [actionId, setActionId] =
-    useState('')
-
-  const [actionMessage, setActionMessage] =
-    useState(null)
-
-  const [manualWhatsappResult, setManualWhatsappResult] =
-    useState(null)
-  
-  const [
-    rejectReasons,
-    setRejectReasons,
-  ] = useState({})
-
-  const [
-    rejectNotes,
-    setRejectNotes,
-  ] = useState({})
-
-  useEffect(() => {
-    let mounted = true
-
-    supabase.auth
-      .getSession()
-      .then(({ data }) => {
-        if (!mounted) return
-
-        setSession(data.session || null)
-        setAuthLoading(false)
+
+    const clientName =
+      invoice.ts_clients?.client_name || 'Client'
+
+    const whatsapp =
+      invoice.ts_clients?.whatsapp || ''
+
+    const now = new Date().toISOString()
+
+    let whatsappMessage = ''
+    let resultStatus = ''
+
+    if (action === 'approve') {
+      const { error: approveError } = await adminClient
+        .from('ts_payment_confirmations')
+        .update({
+          status: 'approved',
+          approved_at: now,
+          approved_by: adminUser.email,
+        })
+        .eq('id', confirmation.id)
+
+      if (approveError) throw approveError
+
+      const { error: invoiceUpdateError } = await adminClient
+        .from('ts_billing_invoices')
+        .update({
+          status: 'paid',
+          paid_at: now,
+          updated_at: now,
+        })
+        .eq('id', invoice.id)
+
+      if (invoiceUpdateError) throw invoiceUpdateError
+
+      whatsappMessage = buildApprovedMessage(invoice, clientName)
+      resultStatus = 'paid'
+    }
+
+    if (action === 'reject') {
+      const standardReason =
+        REJECT_REASONS[rejectReason] ||
+        REJECT_REASONS.lainnya
+
+      const customNote = String(rejectNote || '').trim()
+
+      const rejectionMessage = customNote
+        ? `${standardReason}
+
+Catatan admin:
+${customNote}`
+        : standardReason
+
+      const existingNote = String(
+        confirmation.payment_note || ''
+      ).trim()
+
+      const updatedPaymentNote = [
+        existingNote,
+        `Ditolak admin: ${rejectionMessage}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+
+      const { error: rejectError } = await adminClient
+        .from('ts_payment_confirmations')
+        .update({
+          status: 'rejected',
+          payment_note: updatedPaymentNote,
+          approved_at: null,
+          approved_by: adminUser.email,
+        })
+        .eq('id', confirmation.id)
+
+      if (rejectError) throw rejectError
+
+      const { error: invoiceUpdateError } = await adminClient
+        .from('ts_billing_invoices')
+        .update({
+          status: 'draft',
+          submitted_at: null,
+          paid_at: null,
+          updated_at: now,
+        })
+        .eq('id', invoice.id)
+
+      if (invoiceUpdateError) throw invoiceUpdateError
+
+      whatsappMessage = buildRejectedMessage({
+        invoice,
+        clientName,
+        rejectionMessage,
       })
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      (_event, nextSession) => {
-        setSession(nextSession)
-        setAuthLoading(false)
-      }
-    )
-
-    return () => {
-      mounted = false
-      subscription.unsubscribe()
-    }
-  }, [])
-
-  useEffect(() => {
-    if (session?.access_token) {
-      loadPayments(session)
-    } else {
-      setPayments([])
-    }
-  }, [session])
-
-  async function loadPayments(
-    activeSession = session
-  ) {
-    if (!activeSession?.access_token) {
-      return
+      resultStatus = 'draft'
     }
 
-    setPaymentsLoading(true)
-    setPaymentsError('')
-
-    try {
-      const response = await fetch(
-        '/api/admin-payments',
-        {
-          method: 'GET',
-          headers: {
-            Authorization:
-              `Bearer ${activeSession.access_token}`,
-          },
-        }
-      )
-
-      const result =
-        await readJsonResponse(response)
-
-      if (!response.ok || !result.ok) {
-        throw new Error(
-          result.error ||
-            'Gagal memuat daftar pembayaran.'
-        )
-      }
-
-      setPayments(result.payments || [])
-    } catch (loadError) {
-      setPaymentsError(
-        loadError.message ||
-          'Gagal memuat daftar pembayaran.'
-      )
-    } finally {
-      setPaymentsLoading(false)
-    }
-  }
-
-  async function handleLogin(event) {
-    event.preventDefault()
-
-    setLoginLoading(true)
-    setLoginError('')
-
-    const {
-      data,
-      error,
-    } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
+    const manualWhatsapp = buildManualWhatsapp({
+      whatsapp,
+      message: whatsappMessage,
     })
 
-    if (error) {
-      setLoginError(
+    return res.status(200).json({
+      ok: true,
+      action,
+      invoiceStatus: resultStatus,
+      notificationMode: 'manual_whatsapp',
+      notificationSent: false,
+      notificationError: null,
+      notificationResult: null,
+      manualWhatsapp,
+      message:
+        action === 'approve'
+          ? 'Pembayaran disetujui. Silakan kirim WhatsApp manual dari tombol yang tersedia.'
+          : 'Pembayaran ditolak. Silakan kirim WhatsApp manual dari tombol yang tersedia.',
+    })
+  } catch (error) {
+    console.error('REVIEW_PAYMENT_ERROR:', error)
+
+    if (error.message === 'UNAUTHORIZED') {
+      return res.status(401).json({
+        ok: false,
+        error: 'Silakan login sebagai admin.',
+      })
+    }
+
+    if (error.message === 'FORBIDDEN') {
+      return res.status(403).json({
+        ok: false,
+        error: 'Akun ini tidak memiliki akses admin.',
+      })
+    }
+
+    return res.status(500).json({
+      ok: false,
+      error:
         error.message ||
-          'Email atau password salah.'
-      )
-      setLoginLoading(false)
-      return
-    }
-
-    setSession(data.session)
-    setPassword('')
-    setLoginLoading(false)
+        'Gagal memproses konfirmasi pembayaran.',
+    })
   }
-
-  async function handleLogout() {
-    await supabase.auth.signOut()
-
-    setSession(null)
-    setPayments([])
-    setActionMessage(null)
-    setManualWhatsappResult(null)
-  }
-
-  async function callReviewEndpoint(
-    payment,
-    payload
-  ) {
-    if (!session?.access_token) {
-      throw new Error(
-        'Sesi admin sudah berakhir. Silakan login kembali.'
-      )
-    }
-
-    const response = await fetch(
-      '/api/review-payment',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type':
-            'application/json',
-
-          Authorization:
-            `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          confirmationId:
-            payment.confirmationId,
-          ...payload,
-        }),
-      }
-    )
-
-    const result =
-      await readJsonResponse(response)
-
-    if (!response.ok || !result.ok) {
-      throw new Error(
-        result.error ||
-          'Gagal memproses pembayaran.'
-      )
-    }
-
-    return result
-  }
-
-  async function handleApprove(payment) {
-    const clientName =
-      payment.client?.name || 'Client'
-
-    const confirmed = window.confirm(
-      `Setujui pembayaran ${
-        payment.invoice?.invoiceNo || ''
-      } milik ${clientName}?\n\nInvoice akan berubah menjadi LUNAS.\n\nSetelah approve, sistem akan menyiapkan tombol Copy WA / Open WA untuk dikirim manual.`
-    )
-
-    if (!confirmed) return
-
-    setActionId(payment.confirmationId)
-    setActionMessage(null)
-    setManualWhatsappResult(null)
-
-    try {
-      const result =
-        await callReviewEndpoint(payment, {
-          action: 'approve',
-        })
-
-      setManualWhatsappResult({
-        type: 'approve',
-        title: 'WhatsApp Manual — Pembayaran Lunas',
-        clientName,
-        invoiceNo: payment.invoice?.invoiceNo || '-',
-        manualWhatsapp: result.manualWhatsapp,
-      })
-
-      setActionMessage({
-        type: 'success',
-        text:
-          'Pembayaran berhasil disetujui. Klik Copy WA atau Open WA untuk kirim manual ke client.',
-      })
-
-      await loadPayments(session)
-    } catch (approveError) {
-      setActionMessage({
-        type: 'error',
-        text:
-          approveError.message ||
-          'Gagal menyetujui pembayaran.',
-      })
-    } finally {
-      setActionId('')
-    }
-  }
-
-  async function handleReject(payment) {
-    const confirmationId =
-      payment.confirmationId
-
-    const rejectReason =
-      rejectReasons[confirmationId] || ''
-
-    const rejectNote =
-      rejectNotes[confirmationId] || ''
-
-    if (!rejectReason) {
-      setActionMessage({
-        type: 'error',
-        text:
-          'Pilih alasan penolakan terlebih dahulu.',
-      })
-      return
-    }
-
-    const clientName =
-      payment.client?.name || 'Client'
-
-    const confirmed = window.confirm(
-      `Tolak pembayaran ${
-        payment.invoice?.invoiceNo || ''
-      } milik ${clientName}?\n\nClient dapat upload ulang setelah ditolak.\n\nSetelah reject, sistem akan menyiapkan tombol Copy WA / Open WA untuk dikirim manual.`
-    )
-
-    if (!confirmed) return
-
-    setActionId(confirmationId)
-    setActionMessage(null)
-    setManualWhatsappResult(null)
-
-    try {
-      const result =
-        await callReviewEndpoint(payment, {
-          action: 'reject',
-          rejectReason,
-          rejectNote: rejectNote.trim(),
-        })
-
-      setManualWhatsappResult({
-        type: 'reject',
-        title: 'WhatsApp Manual — Pembayaran Ditolak',
-        clientName,
-        invoiceNo: payment.invoice?.invoiceNo || '-',
-        manualWhatsapp: result.manualWhatsapp,
-      })
-
-      setActionMessage({
-        type: 'success',
-        text:
-          'Pembayaran berhasil ditolak. Klik Copy WA atau Open WA untuk kirim manual ke client.',
-      })
-
-      setRejectReasons((current) => {
-        const next = { ...current }
-        delete next[confirmationId]
-        return next
-      })
-
-      setRejectNotes((current) => {
-        const next = { ...current }
-        delete next[confirmationId]
-        return next
-      })
-
-      await loadPayments(session)
-    } catch (rejectError) {
-      setActionMessage({
-        type: 'error',
-        text:
-          rejectError.message ||
-          'Gagal menolak pembayaran.',
-      })
-    } finally {
-      setActionId('')
-    }
-  }
-
-  if (authLoading) {
-    return (
-      <main className="adminPage">
-        <section className="adminLoginCard">
-          <p>Memeriksa sesi admin...</p>
-        </section>
-      </main>
-    )
-  }
-
-  if (!session) {
-    return (
-      <main className="adminPage">
-        <section className="adminLoginCard">
-          <div className="adminLoginBrand">
-            <img
-              src="/logo-ternaksukses.png"
-              alt="TERNAKSUKSES"
-            />
-
-            <div>
-              <p>TERNAKSUKSES</p>
-              <h1>Billing Admin</h1>
-            </div>
-          </div>
-
-          <p className="adminLoginDescription">
-            Login untuk memeriksa dan
-            memverifikasi pembayaran client.
-          </p>
-
-          <form
-            className="adminLoginForm"
-            onSubmit={handleLogin}
-          >
-            <label>
-              Email Admin
-
-              <input
-                type="email"
-                value={email}
-                onChange={(event) =>
-                  setEmail(event.target.value)
-                }
-                placeholder="Email admin"
-                autoComplete="email"
-                required
-                disabled={loginLoading}
-              />
-            </label>
-
-            <label>
-              Password
-
-              <input
-                type="password"
-                value={password}
-                onChange={(event) =>
-                  setPassword(
-                    event.target.value
-                  )
-                }
-                placeholder="Password admin"
-                autoComplete="current-password"
-                required
-                disabled={loginLoading}
-              />
-            </label>
-
-            {loginError && (
-              <div className="adminAlert error">
-                {loginError}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              className="adminPrimaryButton"
-              disabled={loginLoading}
-            >
-              {loginLoading
-                ? 'Sedang Login...'
-                : 'Login Admin'}
-            </button>
-          </form>
-        </section>
-      </main>
-    )
-  }
-
-  return (
-    <AdminShell
-      activeMenu={activeAdminMenu}
-      onMenuChange={setActiveAdminMenu}
-      adminName={session.user.email || 'TERNAKSUKSES Admin'}
-    >
-      {activeAdminMenu === 'home' && (
-        <section className="adminContainer">
-          <header className="adminHeader">
-            <div className="adminHeaderBrand">
-              <img
-                src="/logo-ternaksukses.png"
-                alt="TERNAKSUKSES"
-              />
-
-              <div>
-                <p>TERNAKSUKSES</p>
-                <h1>Billing Admin</h1>
-              </div>
-            </div>
-
-            <div className="adminHeaderActions">
-              <span>{session.user.email}</span>
-
-              <button
-                type="button"
-                className="adminSecondaryButton"
-                onClick={() =>
-                  loadPayments(session)
-                }
-                disabled={paymentsLoading}
-              >
-                ↻ Refresh
-              </button>
-
-              <button
-                type="button"
-                className="adminLogoutButton"
-                onClick={handleLogout}
-              >
-                Keluar
-              </button>
-            </div>
-          </header>
-
-          <div className="adminSummary">
-            <div>
-              <span>
-                Menunggu Verifikasi
-              </span>
-
-              <strong>{payments.length}</strong>
-            </div>
-
-            <p>
-              Pilih menu di kiri untuk membuka Jaringan,
-              Invoice, Timeline, dan Setting. Sidebar bisa
-              kamu kecilkan atau lebarkan.
-            </p>
-          </div>
-
-          {actionMessage && (
-            <div
-              className={`adminAlert ${actionMessage.type}`}
-            >
-              {actionMessage.text}
-            </div>
-          )}
-
-          {paymentsError && (
-            <div className="adminAlert error">
-              {paymentsError}
-            </div>
-          )}
-
-          <div className="adminEmptyState">
-            ✅ Dashboard sudah dipisah per menu. Klik
-            <strong> Invoice </strong>
-            untuk review pembayaran, klik
-            <strong> Jaringan </strong>
-            untuk struktur partner, dan klik
-            <strong> Timeline </strong>
-            untuk activity log.
-          </div>
-        </section>
-      )}
-
-      {activeAdminMenu === 'network' && (
-        <AdminNetwork session={session} />
-      )}
-
-      {activeAdminMenu === 'timeline' && (
-        <AdminActivityLogs session={session} />
-      )}
-
-      {activeAdminMenu === 'settings' && (
-        <AdminPsSettings session={session} />
-      )}
-
-      {activeAdminMenu === 'ps_requests' && (
-        <AdminPsRequests session={session} />
-      )}
-
-      {activeAdminMenu === 'billing_setup' && (
-        <AdminBillingSetup session={session} />
-      )}
-      
-      {activeAdminMenu === 'invoice' && (
-        <section className="adminContainer">
-          <header className="adminHeader">
-            <div className="adminHeaderBrand">
-              <img
-                src="/logo-ternaksukses.png"
-                alt="TERNAKSUKSES"
-              />
-
-              <div>
-                <p>TERNAKSUKSES</p>
-                <h1>Invoice Review</h1>
-              </div>
-            </div>
-
-            <div className="adminHeaderActions">
-              <span>{session.user.email}</span>
-
-              <button
-                type="button"
-                className="adminSecondaryButton"
-                onClick={() =>
-                  loadPayments(session)
-                }
-                disabled={paymentsLoading}
-              >
-                ↻ Refresh
-              </button>
-
-              <button
-                type="button"
-                className="adminLogoutButton"
-                onClick={handleLogout}
-              >
-                Keluar
-              </button>
-            </div>
-          </header>
-
-          <div className="adminSummary">
-            <div>
-              <span>
-                Menunggu Verifikasi
-              </span>
-
-              <strong>{payments.length}</strong>
-            </div>
-
-            <p>
-              Periksa nominal, rekening tujuan,
-              tanggal transaksi, dan kejelasan
-              bukti pembayaran.
-            </p>
-          </div>
-
-          {actionMessage && (
-            <div
-              className={`adminAlert ${actionMessage.type}`}
-            >
-              {actionMessage.text}
-            </div>
-          )}
-
-          {manualWhatsappResult && (
-            <div className="adminAlert success">
-              <strong>{manualWhatsappResult.title}</strong>
-          
-              <p>
-                Client: {manualWhatsappResult.clientName}
-                <br />
-                Invoice: {manualWhatsappResult.invoiceNo}
-              </p>
-          
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 10,
-                  flexWrap: 'wrap',
-                  marginTop: 10,
-                }}
-              >
-                <button
-                  type="button"
-                  className="adminSecondaryButton"
-                  onClick={() =>
-                    copyManualWhatsApp(
-                      manualWhatsappResult.manualWhatsapp
-                    )
-                  }
-                >
-                  Copy WA
-                </button>
-          
-                <button
-                  type="button"
-                  className="adminPrimaryButton"
-                  onClick={() =>
-                    openManualWhatsApp(
-                      manualWhatsappResult.manualWhatsapp
-                    )
-                  }
-                >
-                  Open WA
-                </button>
-          
-                <button
-                  type="button"
-                  className="adminSecondaryButton"
-                  onClick={() =>
-                    setManualWhatsappResult(null)
-                  }
-                >
-                  Tutup
-                </button>
-              </div>
-            </div>
-          )}
-                  
-          {paymentsError && (
-            <div className="adminAlert error">
-              {paymentsError}
-            </div>
-          )}
-
-          {paymentsLoading && (
-            <div className="adminEmptyState">
-              Memuat pembayaran...
-            </div>
-          )}
-
-          {!paymentsLoading &&
-            !paymentsError &&
-            payments.length === 0 && (
-              <div className="adminEmptyState">
-                ✅ Tidak ada pembayaran yang
-                menunggu verifikasi.
-              </div>
-            )}
-
-          {!paymentsLoading &&
-            payments.map((payment) => {
-              const isPdf = String(
-                payment.slipPath || ''
-              )
-                .toLowerCase()
-                .endsWith('.pdf')
-
-              const isProcessing =
-                actionId ===
-                payment.confirmationId
-
-              return (
-                <article
-                  className="adminPaymentCard"
-                  key={payment.confirmationId}
-                >
-                  <div className="adminPaymentTop">
-                    <div>
-                      <p className="adminSmallLabel">
-                        Client
-                      </p>
-
-                      <h2>
-                        {payment.client?.name ||
-                          'Client tidak ditemukan'}
-                      </h2>
-
-                      <p>
-                        WhatsApp:{' '}
-                        {payment.client?.whatsapp ||
-                          '-'}
-                      </p>
-                    </div>
-
-                    <div className="adminInvoiceAmount">
-                      <span>
-                        Total Invoice
-                      </span>
-
-                      <strong>
-                        {formatRupiah(
-                          payment.invoice
-                            ?.totalAmount
-                        )}
-                      </strong>
-                    </div>
-                  </div>
-
-                  <div className="adminPaymentGrid">
-                    <div>
-                      <span>Invoice</span>
-
-                      <strong>
-                        {payment.invoice
-                          ?.invoiceNo || '-'}
-                      </strong>
-                    </div>
-
-                    <div>
-                      <span>
-                        Nominal Diklaim
-                      </span>
-
-                      <strong>
-                        {formatRupiah(
-                          payment.amountClaimed
-                        )}
-                      </strong>
-                    </div>
-
-                    <div>
-                      <span>Periode</span>
-
-                      <strong>
-                        {payment.invoice
-                          ?.periodStart || '-'}{' '}
-                        s/d{' '}
-                        {payment.invoice
-                          ?.periodEnd || '-'}
-                      </strong>
-                    </div>
-
-                    <div>
-                      <span>Dikirim</span>
-
-                      <strong>
-                        {formatDateTime(
-                          payment.uploadedAt
-                        )}
-                      </strong>
-                    </div>
-                  </div>
-
-                  {payment.paymentNote && (
-                    <div className="adminClientNote">
-                      <span>
-                        Catatan Client
-                      </span>
-
-                      <p>
-                        {payment.paymentNote}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="adminSlipSection">
-                    <div className="adminSlipHeader">
-                      <h3>
-                        Bukti Transfer
-                      </h3>
-
-                      {payment.slipUrl && (
-                        <a
-                          href={payment.slipUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Buka Ukuran Penuh ↗
-                        </a>
-                      )}
-                    </div>
-
-                    {!payment.slipUrl && (
-                      <div className="adminAlert error">
-                        Bukti transfer tidak dapat
-                        dibuka.
-                        {payment.slipError
-                          ? ` ${payment.slipError}`
-                          : ''}
-                      </div>
-                    )}
-
-                    {payment.slipUrl &&
-                      isPdf && (
-                        <a
-                          className="adminPdfButton"
-                          href={payment.slipUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          📄 Buka Bukti Transfer PDF
-                        </a>
-                      )}
-
-                    {payment.slipUrl &&
-                      !isPdf && (
-                        <a
-                          href={payment.slipUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="adminSlipImageLink"
-                        >
-                          <img
-                            className="adminSlipImage"
-                            src={payment.slipUrl}
-                            alt="Bukti transfer client"
-                          />
-                        </a>
-                      )}
-                  </div>
-
-                  <div className="adminReviewSection">
-                    <h3>
-                      Keputusan Admin
-                    </h3>
-
-                    <div className="adminApproveArea">
-                      <p>
-                        Pastikan pembayaran sudah
-                        masuk dan seluruh data
-                        transaksi sesuai.
-                      </p>
-
-                      <button
-                        type="button"
-                        className="adminApproveButton"
-                        onClick={() =>
-                          handleApprove(payment)
-                        }
-                        disabled={isProcessing}
-                      >
-                        {isProcessing
-                          ? 'Memproses...'
-                          : '✓ Approve Pembayaran'}
-                      </button>
-                    </div>
-
-                    <div className="adminRejectArea">
-                      <label>
-                        Alasan Penolakan
-
-                        <select
-                          value={
-                            rejectReasons[
-                              payment.confirmationId
-                            ] || ''
-                          }
-                          onChange={(event) =>
-                            setRejectReasons(
-                              (current) => ({
-                                ...current,
-                                [payment.confirmationId]:
-                                  event.target.value,
-                              })
-                            )
-                          }
-                          disabled={isProcessing}
-                        >
-                          <option value="">
-                            Pilih alasan
-                          </option>
-
-                          {REJECT_OPTIONS.map(
-                            (option) => (
-                              <option
-                                key={option.value}
-                                value={option.value}
-                              >
-                                {option.label}
-                              </option>
-                            )
-                          )}
-                        </select>
-                      </label>
-
-                      <label>
-                        Catatan Tambahan
-                        <span> opsional</span>
-
-                        <textarea
-                          value={
-                            rejectNotes[
-                              payment.confirmationId
-                            ] || ''
-                          }
-                          onChange={(event) =>
-                            setRejectNotes(
-                              (current) => ({
-                                ...current,
-                                [payment.confirmationId]:
-                                  event.target.value,
-                              })
-                            )
-                          }
-                          placeholder="Contoh: Nominal yang diterima Rp350.000. Masih kurang Rp50.000."
-                          rows="3"
-                          maxLength="500"
-                          disabled={isProcessing}
-                        />
-                      </label>
-
-                      <button
-                        type="button"
-                        className="adminRejectButton"
-                        onClick={() =>
-                          handleReject(payment)
-                        }
-                        disabled={isProcessing}
-                      >
-                        {isProcessing
-                          ? 'Memproses...'
-                          : '✕ Reject Pembayaran'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {payment.invoice?.token && (
-                    <a
-                      className="adminInvoiceLink"
-                      href={`/pay/${payment.invoice.token}`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Buka Halaman Invoice Client ↗
-                    </a>
-                  )}
-                </article>
-              )
-            })}
-        </section>
-      )}
-    </AdminShell>
-  )
-}
-
-export default function App() {
-  if (isAdminPath()) {
-    return <AdminPage />
-  }
-
-  return <InvoicePage />
 }
