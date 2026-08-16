@@ -266,7 +266,7 @@ async function postGoogleSheetBackup({ table, action, payload }) {
 
   const timeout = setTimeout(() => {
     controller.abort()
-  }, 7000)
+  }, 25000)
 
   let response
 
@@ -287,7 +287,7 @@ async function postGoogleSheetBackup({ table, action, payload }) {
   } catch (err) {
     if (err?.name === 'AbortError') {
       throw new Error(
-        'Google Sheet backup timeout lebih dari 7 detik. Apps Script lambat / belum siap.'
+        'Google Sheet backup timeout lebih dari 25 detik. Apps Script lambat / belum siap.'
       )
     }
 
