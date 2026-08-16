@@ -914,24 +914,45 @@ function AdminPage() {
       )
     }
 
-    const response = await fetch(
-      '/api/review-payment',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type':
-            'application/json',
+    const controller = new AbortController()
 
-          Authorization:
-            `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          confirmationId:
-            payment.confirmationId,
-          ...payload,
-        }),
+    const timeout = window.setTimeout(() => {
+      controller.abort()
+    }, 15000)
+
+    let response
+
+    try {
+      response = await fetch(
+        '/api/review-payment',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':
+              'application/json',
+
+            Authorization:
+              `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            confirmationId:
+              payment.confirmationId,
+            ...payload,
+          }),
+          signal: controller.signal,
+        }
+      )
+    } catch (fetchError) {
+      if (fetchError?.name === 'AbortError') {
+        throw new Error(
+          'Server terlalu lama merespons approve/reject. Cek Vercel Logs untuk /api/review-payment.'
+        )
       }
-    )
+
+      throw fetchError
+    } finally {
+      window.clearTimeout(timeout)
+    }
 
     const result =
       await readJsonResponse(response)
