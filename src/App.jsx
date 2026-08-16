@@ -1003,7 +1003,16 @@ function AdminPage() {
           'Pembayaran berhasil disetujui. Klik Copy WA atau Open WA untuk kirim manual ke client.',
       })
 
-      await loadPayments(session)
+      setPayments((current) =>
+        current.filter(
+          (item) =>
+            item.confirmationId !== payment.confirmationId
+        )
+      )
+
+      setActionId('')
+
+      loadPayments(session)
     } catch (approveError) {
       setActionMessage({
         type: 'error',
@@ -1011,7 +1020,7 @@ function AdminPage() {
           approveError.message ||
           'Gagal menyetujui pembayaran.',
       })
-    } finally {
+
       setActionId('')
     }
   }
@@ -1084,7 +1093,16 @@ function AdminPage() {
         return next
       })
 
-      await loadPayments(session)
+      setPayments((current) =>
+        current.filter(
+          (item) =>
+            item.confirmationId !== confirmationId
+        )
+      )
+
+      setActionId('')
+
+      loadPayments(session)
     } catch (rejectError) {
       setActionMessage({
         type: 'error',
@@ -1092,7 +1110,7 @@ function AdminPage() {
           rejectError.message ||
           'Gagal menolak pembayaran.',
       })
-    } finally {
+
       setActionId('')
     }
   }
