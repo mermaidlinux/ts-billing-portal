@@ -175,6 +175,7 @@ export default function AdminBillingSetup({ session }) {
   const [bulkGenerating, setBulkGenerating] = useState(false)
   const [sendingInvoiceId, setSendingInvoiceId] = useState('')
   const [manualPaidInvoiceId, setManualPaidInvoiceId] = useState('')
+  const [revertingInvoiceId, setRevertingInvoiceId] = useState('')
   const [message, setMessage] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -1037,7 +1038,19 @@ export default function AdminBillingSetup({ session }) {
     )
   
     if (!confirmed) return
+
+    const confirmText = window.prompt(
+      `Ketik PAID untuk menandai invoice ${row.invoice_no} sebagai lunas manual.`
+    )
   
+    if (confirmText !== 'PAID') {
+      setMessage({
+        type: 'error',
+        text: 'Manual Paid dibatalkan. Kamu harus ketik PAID.',
+      })
+      return
+    }
+    
     setManualPaidInvoiceId(row.id)
     setMessage(null)
   
@@ -1051,6 +1064,7 @@ export default function AdminBillingSetup({ session }) {
         body: JSON.stringify({
           action: 'manual_paid_invoice',
           invoice_id: row.id,
+          confirm_text: 'PAID',
         }),
       })
   
@@ -1075,6 +1089,99 @@ export default function AdminBillingSetup({ session }) {
       })
     } finally {
       setManualPaidInvoiceId('')
+    }
+  }
+
+  async function revertInvoiceStatus(row, targetStatus) {
+    if (!row?.id) {
+      setMessage({
+        type: 'error',
+        text: 'Invoice ID tidak ditemukan.',
+      })
+      return
+    }
+  
+    if (!['draft', 'unpaid'].includes(targetStatus)) {
+      setMessage({
+        type: 'error',
+        text: 'Target status hanya boleh draft atau unpaid.',
+      })
+      return
+    }
+  
+    if (row.status === targetStatus) {
+      setMessage({
+        type: 'error',
+        text: `Invoice sudah ${targetStatus}.`,
+      })
+      return
+    }
+  
+    if (row.status === 'cancelled' || row.status === 'suspended') {
+      setMessage({
+        type: 'error',
+        text: `Invoice status ${row.status} tidak boleh direvert.`,
+      })
+      return
+    }
+  
+    const confirmed = window.confirm(
+      `Revert invoice ${row.invoice_no} ke ${targetStatus.toUpperCase()}?\n\nGunakan hanya kalau status invoice salah klik / perlu koreksi manual.`
+    )
+  
+    if (!confirmed) return
+  
+    const confirmText = window.prompt(
+      `Ketik REVERT untuk mengubah invoice ${row.invoice_no} ke ${targetStatus.toUpperCase()}.`
+    )
+  
+    if (confirmText !== 'REVERT') {
+      setMessage({
+        type: 'error',
+        text: 'Revert dibatalkan. Kamu harus ketik REVERT.',
+      })
+      return
+    }
+  
+    setRevertingInvoiceId(`${row.id}:${targetStatus}`)
+    setMessage(null)
+  
+    try {
+      const response = await fetch('/api/admin-payments', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'revert_invoice_status',
+          invoice_id: row.id,
+          target_status: targetStatus,
+          confirm_text: 'REVERT',
+        }),
+      })
+  
+      const result = await response.json()
+  
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Gagal revert status invoice.')
+      }
+  
+      setMessage({
+        type: 'success',
+        text:
+          result.message ||
+          `Invoice ${row.invoice_no} berhasil direvert ke ${targetStatus}.`,
+      })
+  
+      setRefreshKey((prev) => prev + 1)
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Gagal revert status invoice.',
+      })
+    } finally {
+      setRevertingInvoiceId('')
     }
   }
   
@@ -1357,7 +1464,7 @@ export default function AdminBillingSetup({ session }) {
     {
         key: 'actions',
         label: 'Action',
-        width: 780,
+        width: 980,
         render: (row) => (
           <div
             style={{
@@ -1434,20 +1541,53 @@ export default function AdminBillingSetup({ session }) {
             {manualPaidInvoiceId === row.id ? 'Paying...' : 'Manual Paid'}
           </button>
             
+          {/* Send WA via Fonnte dimatikan karena akun WhatsApp rawan banned.
+              Gunakan Copy WA / Open WA manual. */}
+
           <button
             type="button"
-            style={styles.smallButton}
-            onClick={() => sendInvoiceWhatsApp(row)}
-            disabled={row.status === 'paid' || sendingInvoiceId === row.id}
-            title={
-              row.status === 'paid'
-                ? 'Invoice paid tidak perlu dikirim'
-                : 'Kirim invoice via Fonnte'
+            style={{
+              ...styles.smallButton,
+              border: '1px solid rgba(148, 163, 184, 0.45)',
+              background: 'rgba(148, 163, 184, 0.10)',
+              color: '#cbd5e1',
+            }}
+            onClick={() => revertInvoiceStatus(row, 'draft')}
+            disabled={
+              row.status === 'draft' ||
+              row.status === 'cancelled' ||
+              row.status === 'suspended' ||
+              revertingInvoiceId === `${row.id}:draft`
             }
+            title="Balikkan invoice ke draft"
           >
-            {sendingInvoiceId === row.id ? 'Sending...' : 'Send WA'}
+            {revertingInvoiceId === `${row.id}:draft`
+              ? 'Reverting...'
+              : 'Revert Draft'}
           </button>
-
+          
+          <button
+            type="button"
+            style={{
+              ...styles.smallButton,
+              border: '1px solid rgba(245, 158, 11, 0.45)',
+              background: 'rgba(245, 158, 11, 0.10)',
+              color: '#fbbf24',
+            }}
+            onClick={() => revertInvoiceStatus(row, 'unpaid')}
+            disabled={
+              row.status === 'unpaid' ||
+              row.status === 'cancelled' ||
+              row.status === 'suspended' ||
+              revertingInvoiceId === `${row.id}:unpaid`
+            }
+            title="Balikkan invoice ke unpaid / waiting payment"
+          >
+            {revertingInvoiceId === `${row.id}:unpaid`
+              ? 'Reverting...'
+              : 'Revert Unpaid'}
+          </button>
+            
           <button
             type="button"
             style={styles.smallButton}
