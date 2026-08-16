@@ -776,10 +776,13 @@ function AdminPage() {
 
   const [actionId, setActionId] =
     useState('')
-
+  
   const [actionMessage, setActionMessage] =
     useState(null)
-
+  
+  const [manualWhatsappResult, setManualWhatsappResult] =
+    useState(null)
+  
   const [
     rejectReasons,
     setRejectReasons,
@@ -898,10 +901,11 @@ function AdminPage() {
 
   async function handleLogout() {
     await supabase.auth.signOut()
-
+  
     setSession(null)
     setPayments([])
     setActionMessage(null)
+    setManualWhatsappResult(null)
   }
 
   async function callReviewEndpoint(
@@ -1057,9 +1061,12 @@ function AdminPage() {
 
     setActionId(confirmationId)
     setActionMessage(null)
-    setManualWhatsappResult(null)
 
     try {
+      if (typeof setManualWhatsappResult === 'function') {
+        setManualWhatsappResult(null)
+      }
+
       const result =
         await callReviewEndpoint(payment, {
           action: 'reject',
@@ -1067,13 +1074,15 @@ function AdminPage() {
           rejectNote: rejectNote.trim(),
         })
 
-      setManualWhatsappResult({
-        type: 'reject',
-        title: 'WhatsApp Manual — Pembayaran Ditolak',
-        clientName,
-        invoiceNo: payment.invoice?.invoiceNo || '-',
-        manualWhatsapp: result.manualWhatsapp,
-      })
+      if (typeof setManualWhatsappResult === 'function') {
+        setManualWhatsappResult({
+          type: 'reject',
+          title: 'WhatsApp Manual — Pembayaran Ditolak',
+          clientName,
+          invoiceNo: payment.invoice?.invoiceNo || '-',
+          manualWhatsapp: result.manualWhatsapp,
+        })
+      }
 
       setActionMessage({
         type: 'success',
@@ -1100,17 +1109,19 @@ function AdminPage() {
         )
       )
 
-      setActionId('')
-
-      loadPayments(session)
+      window.setTimeout(() => {
+        loadPayments(session)
+      }, 300)
     } catch (rejectError) {
+      console.error('REJECT_PAYMENT_FRONTEND_ERROR:', rejectError)
+
       setActionMessage({
         type: 'error',
         text:
           rejectError.message ||
           'Gagal menolak pembayaran.',
       })
-
+    } finally {
       setActionId('')
     }
   }
