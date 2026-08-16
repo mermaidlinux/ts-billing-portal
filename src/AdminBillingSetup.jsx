@@ -174,6 +174,7 @@ export default function AdminBillingSetup({ session }) {
   const [generating, setGenerating] = useState(false)
   const [bulkGenerating, setBulkGenerating] = useState(false)
   const [sendingInvoiceId, setSendingInvoiceId] = useState('')
+  const [manualPaidInvoiceId, setManualPaidInvoiceId] = useState('')
   const [message, setMessage] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -1006,6 +1007,77 @@ export default function AdminBillingSetup({ session }) {
     }
   }
 
+  async function manualPaidInvoice(row) {
+    if (!row?.id) {
+      setMessage({
+        type: 'error',
+        text: 'Invoice ID tidak ditemukan.',
+      })
+      return
+    }
+  
+    if (row.status === 'paid') {
+      setMessage({
+        type: 'error',
+        text: 'Invoice sudah PAID.',
+      })
+      return
+    }
+  
+    if (row.status === 'cancelled' || row.status === 'suspended') {
+      setMessage({
+        type: 'error',
+        text: `Invoice status ${row.status} tidak boleh diubah menjadi paid.`,
+      })
+      return
+    }
+  
+    const confirmed = window.confirm(
+      `Tandai invoice ${row.invoice_no} sebagai PAID secara manual?\n\nGunakan ini hanya kalau pembayaran sudah benar-benar masuk, tetapi client tidak upload bukti melalui link invoice.`
+    )
+  
+    if (!confirmed) return
+  
+    setManualPaidInvoiceId(row.id)
+    setMessage(null)
+  
+    try {
+      const response = await fetch('/api/admin-payments', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'manual_paid_invoice',
+          invoice_id: row.id,
+        }),
+      })
+  
+      const result = await response.json()
+  
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Gagal update invoice menjadi paid.')
+      }
+  
+      setMessage({
+        type: 'success',
+        text:
+          result.message ||
+          `Invoice ${row.invoice_no} berhasil diubah menjadi PAID.`,
+      })
+  
+      setRefreshKey((prev) => prev + 1)
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Gagal update invoice menjadi paid.',
+      })
+    } finally {
+      setManualPaidInvoiceId('')
+    }
+  }
+  
   async function sendInvoiceWhatsApp(row) {
     if (!row?.id) {
       setMessage({
@@ -1285,7 +1357,7 @@ export default function AdminBillingSetup({ session }) {
     {
         key: 'actions',
         label: 'Action',
-        width: 650,
+        width: 780,
         render: (row) => (
           <div
             style={{
@@ -1338,6 +1410,30 @@ export default function AdminBillingSetup({ session }) {
             Mark Sent
           </button>
 
+          <button
+            type="button"
+            style={{
+              ...styles.smallButton,
+              border: '1px solid rgba(34, 197, 94, 0.45)',
+              background: 'rgba(34, 197, 94, 0.12)',
+              color: '#86efac',
+            }}
+            onClick={() => manualPaidInvoice(row)}
+            disabled={
+              row.status === 'paid' ||
+              row.status === 'cancelled' ||
+              row.status === 'suspended' ||
+              manualPaidInvoiceId === row.id
+            }
+            title={
+              row.status === 'paid'
+                ? 'Invoice sudah paid'
+                : 'Tandai invoice sebagai paid manual'
+            }
+          >
+            {manualPaidInvoiceId === row.id ? 'Paying...' : 'Manual Paid'}
+          </button>
+            
           <button
             type="button"
             style={styles.smallButton}
