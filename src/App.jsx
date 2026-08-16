@@ -123,6 +123,25 @@ function getStatusLabel(status) {
   }
 }
 
+function openManualWhatsApp(manualWhatsapp) {
+  if (!manualWhatsapp?.url) {
+    alert('Nomor WhatsApp client kosong / tidak valid.')
+    return
+  }
+
+  window.open(manualWhatsapp.url, '_blank')
+}
+
+async function copyManualWhatsApp(manualWhatsapp) {
+  if (!manualWhatsapp?.text) {
+    alert('Pesan WhatsApp kosong.')
+    return
+  }
+
+  await navigator.clipboard.writeText(manualWhatsapp.text)
+  alert('Pesan WhatsApp berhasil dicopy.')
+}
+
 async function readJsonResponse(response) {
   const text = await response.text()
 
@@ -988,6 +1007,8 @@ function AdminPage() {
     setManualWhatsappResult(null)
 
     try {
+      console.log('APPROVE_PAYMENT_CLICKED:', payment.confirmationId)
+
       const result =
         await callReviewEndpoint(payment, {
           action: 'approve',
@@ -1014,17 +1035,19 @@ function AdminPage() {
         )
       )
 
-      setActionId('')
-
-      loadPayments(session)
+      window.setTimeout(() => {
+        loadPayments(session)
+      }, 300)
     } catch (approveError) {
+      console.error('APPROVE_PAYMENT_FRONTEND_ERROR:', approveError)
+
       setActionMessage({
         type: 'error',
         text:
           approveError.message ||
           'Gagal menyetujui pembayaran.',
       })
-
+    } finally {
       setActionId('')
     }
   }
@@ -1285,6 +1308,61 @@ function AdminPage() {
             </div>
           )}
 
+          {manualWhatsappResult && (
+            <div className="adminAlert success">
+              <strong>{manualWhatsappResult.title}</strong>
+
+              <p>
+                Client: {manualWhatsappResult.clientName}
+                <br />
+                Invoice: {manualWhatsappResult.invoiceNo}
+              </p>
+
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 10,
+                  flexWrap: 'wrap',
+                  marginTop: 10,
+                }}
+              >
+                <button
+                  type="button"
+                  className="adminSecondaryButton"
+                  onClick={() =>
+                    copyManualWhatsApp(
+                      manualWhatsappResult.manualWhatsapp
+                    )
+                  }
+                >
+                  Copy WA
+                </button>
+
+                <button
+                  type="button"
+                  className="adminPrimaryButton"
+                  onClick={() =>
+                    openManualWhatsApp(
+                      manualWhatsappResult.manualWhatsapp
+                    )
+                  }
+                >
+                  Open WA
+                </button>
+
+                <button
+                  type="button"
+                  className="adminSecondaryButton"
+                  onClick={() =>
+                    setManualWhatsappResult(null)
+                  }
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          )}
+          
           {paymentsError && (
             <div className="adminAlert error">
               {paymentsError}
