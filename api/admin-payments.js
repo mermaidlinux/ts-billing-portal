@@ -635,6 +635,150 @@ async function handleSendInvoiceWhatsApp(req, res, user) {
   })
 }
 
+async function handleManualPaidInvoice(req, res, user) {
+  const adminClient = getSupabaseAdmin()
+
+  const body = parseBody(req)
+  const invoiceId = body.invoice_id || body.invoiceId
+
+  if (!invoiceId) {
+    return res.status(400).json({
+      ok: false,
+      error: 'invoice_id wajib dikirim.',
+    })
+  }
+
+  const { data: invoice, error: invoiceError } = await adminClient
+    .from('ts_billing_invoices')
+    .select(
+      `
+        id,
+        invoice_no,
+        token,
+        client_id,
+        total_amount,
+        period_start,
+        period_end,
+        due_date,
+        grace_until,
+        status,
+        paid_at,
+        notes,
+        ts_clients (
+          client_name,
+          whatsapp,
+          email
+        )
+      `
+    )
+    .eq('id', invoiceId)
+    .maybeSingle()
+
+  if (invoiceError) throw invoiceError
+
+  if (!invoice) {
+    return res.status(404).json({
+      ok: false,
+      error: 'Invoice tidak ditemukan.',
+    })
+  }
+
+  if (invoice.status === 'paid') {
+    return res.status(200).json({
+      ok: true,
+      already_paid: true,
+      message: `Invoice ${invoice.invoice_no} sudah berstatus PAID.`,
+      invoice,
+    })
+  }
+
+  if (['cancelled', 'suspended'].includes(invoice.status)) {
+    return res.status(400).json({
+      ok: false,
+      error: `Invoice status ${invoice.status} tidak boleh diubah manual menjadi paid.`,
+    })
+  }
+
+  const now = new Date().toISOString()
+
+  const updatedNotes = [
+    invoice.notes || '',
+    `Manual paid by ${user.email} at ${now}. Payment received outside invoice upload flow.`,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const { data: updatedInvoice, error: updateInvoiceError } =
+    await adminClient
+      .from('ts_billing_invoices')
+      .update({
+        status: 'paid',
+        paid_at: now,
+        updated_at: now,
+        notes: updatedNotes,
+      })
+      .eq('id', invoice.id)
+      .select(
+        `
+          id,
+          invoice_no,
+          token,
+          client_id,
+          total_amount,
+          period_start,
+          period_end,
+          due_date,
+          grace_until,
+          status,
+          paid_at,
+          updated_at,
+          notes
+        `
+      )
+      .maybeSingle()
+
+  if (updateInvoiceError) throw updateInvoiceError
+
+  const { error: paymentUpdateError } = await adminClient
+    .from('ts_payment_confirmations')
+    .update({
+      status: 'approved',
+      approved_at: now,
+      approved_by: user.email,
+    })
+    .eq('invoice_id', invoice.id)
+    .eq('status', 'waiting_verification')
+
+  if (paymentUpdateError) throw paymentUpdateError
+
+  let backupResult = null
+  let backupError = null
+
+  try {
+    backupResult = await postGoogleSheetBackup({
+      table: 'invoices',
+      action: 'manual_paid_invoice',
+      payload: {
+        invoice: updatedInvoice,
+        client: invoice.ts_clients || null,
+        manual_paid_by: user.email,
+        manual_paid_at: now,
+        note: 'Payment received outside invoice upload flow.',
+      },
+    })
+  } catch (err) {
+    backupError = err.message || 'Backup after Manual Paid gagal.'
+  }
+
+  return res.status(200).json({
+    ok: true,
+    message: `Invoice ${invoice.invoice_no} berhasil diubah menjadi PAID secara manual.`,
+    invoice: updatedInvoice,
+    backup: backupResult,
+    backup_error: backupError,
+  })
+}
+
 async function handleGetPayments(req, res) {
   const adminClient = getSupabaseAdmin()
 
@@ -806,6 +950,10 @@ export default async function handler(req, res) {
         return handleSendInvoiceWhatsApp(req, res, user)
       }
 
+      if (body.action === 'manual_paid_invoice') {
+        return handleManualPaidInvoice(req, res, user)
+      }
+      
       if (body.action === 'backup_billing_data') {
         return handleBackupBillingData(req, res, user)
       }
