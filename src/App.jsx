@@ -1463,7 +1463,62 @@ function AdminPage() {
               {actionMessage.text}
             </div>
           )}
-
+          
+          {manualWhatsappResult && (
+            <div className="adminAlert success">
+              <strong>{manualWhatsappResult.title}</strong>
+          
+              <p>
+                Client: {manualWhatsappResult.clientName}
+                <br />
+                Invoice: {manualWhatsappResult.invoiceNo}
+              </p>
+          
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 10,
+                  flexWrap: 'wrap',
+                  marginTop: 10,
+                }}
+              >
+                <button
+                  type="button"
+                  className="adminSecondaryButton"
+                  onClick={() =>
+                    copyManualWhatsApp(
+                      manualWhatsappResult.manualWhatsapp
+                    )
+                  }
+                >
+                  Copy WA
+                </button>
+          
+                <button
+                  type="button"
+                  className="adminPrimaryButton"
+                  onClick={() =>
+                    openManualWhatsApp(
+                      manualWhatsappResult.manualWhatsapp
+                    )
+                  }
+                >
+                  Open WA
+                </button>
+          
+                <button
+                  type="button"
+                  className="adminSecondaryButton"
+                  onClick={() =>
+                    setManualWhatsappResult(null)
+                  }
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          )}
+          
           {paymentsError && (
             <div className="adminAlert error">
               {paymentsError}
